@@ -15,11 +15,11 @@ if not os.path.exists("./data/csv"):
     os.makedirs("./data/csv")
     
 class Generator():
-    def __init__(self,cohort_output,if_mort,if_admn,if_los,feat_cond,feat_proc,feat_out,feat_chart,feat_med,impute,include_time=24,bucket=1,predW=6):
+    def __init__(self,root_dir, cohort_output,if_mort,if_admn,if_los,feat_cond,feat_proc,feat_out,feat_chart,feat_med,impute,include_time=24,bucket=1,predW=6):
         self.feat_cond,self.feat_proc,self.feat_out,self.feat_chart,self.feat_med = feat_cond,feat_proc,feat_out,feat_chart,feat_med
         self.cohort_output=cohort_output
         self.impute=impute
-        self.data = self.generate_adm()
+        self.data = self.generate_adm(root_dir = root_dir)
         print("[ READ COHORT ]")
         
         self.generate_feat()
@@ -55,8 +55,9 @@ class Generator():
             print("[ ======READING MEDICATIONS ]")
             self.generate_meds()
 
-    def generate_adm(self):
-        data=pd.read_csv(f"./data/cohort/{self.cohort_output}.csv.gz", compression='gzip', header=0, index_col=None)
+    def generate_adm(self, root_dir : str):
+        data=pd.read_csv(root_dir + f"/data/cohort/{self.cohort_output}.csv.gz", compression='gzip', header=0, index_col=None)
+        # data=pd.read_csv(root_dir + f"./data/cohort/{self.cohort_output}.csv.gz", compression='gzip', header=0, index_col=None)
         data['intime'] = pd.to_datetime(data['intime'])
         data['outtime'] = pd.to_datetime(data['outtime'])
         data['los']=pd.to_timedelta(data['outtime']-data['intime'],unit='h')

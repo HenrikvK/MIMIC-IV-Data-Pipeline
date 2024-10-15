@@ -102,6 +102,14 @@ class ML_models():
             print('train_hids',len(train_hids))
             X_train,Y_train=self.getXY(train_hids,labels,concat_cols)
             #encoding categorical
+            
+            # Helper function to handle unknown labels
+            def safe_transform(encoder, data, default=-1):
+                # Create a dictionary of known labels
+                known_labels = set(encoder.classes_)
+                return np.array([encoder.transform([x])[0] if x in known_labels else default for x in data])
+
+
             gen_encoder = LabelEncoder()
             eth_encoder = LabelEncoder()
             ins_encoder = LabelEncoder()
@@ -120,9 +128,12 @@ class ML_models():
             print('test_hids',len(test_hids))
             X_test,Y_test=self.getXY(test_hids,labels,concat_cols)
             self.test_data=X_test.copy(deep=True)
-            X_test['gender']=gen_encoder.transform(X_test['gender'])
-            X_test['ethnicity']=eth_encoder.transform(X_test['ethnicity'])
-            X_test['insurance']=ins_encoder.transform(X_test['insurance'])
+            # X_test['gender']=gen_encoder.transform(X_test['gender'])
+            # X_test['ethnicity']=eth_encoder.transform(X_test['ethnicity'])
+            # X_test['insurance']=ins_encoder.transform(X_test['insurance'])
+            X_test['gender']    = safe_transform(gen_encoder, X_test['gender'])
+            X_test['ethnicity'] = safe_transform(eth_encoder, X_test['ethnicity'])
+            X_test['insurance'] = safe_transform(ins_encoder, X_test['insurance'])
             #X_test['Age']=age_encoder.transform(X_test['Age'])
             
             
