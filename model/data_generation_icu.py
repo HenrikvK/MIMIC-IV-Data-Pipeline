@@ -282,7 +282,13 @@ class Generator():
             self.chart=self.chart[self.chart['stay_id'].isin(self.data['stay_id'])]
             self.chart=pd.merge(self.chart,self.data[['stay_id','select_time']],on='stay_id',how='left')
             self.chart['start_time']=self.chart['start_time']-self.chart['select_time']
-            self.chart=self.chart[self.chart['start_time']>=0]
+            # WARNING: HARD-INCLUDE SOME FEATURE THAT HAPPENED BEFORE ADMISSION TO ICU (e.g. weight)
+            included_itemids = ["226512",  "226531" , "224639"]
+            # Apply the filter condition only to rows where 'itemid' is NOT in included_itemids
+            self.chart = self.chart[(self.chart['start_time'] >= 0) | (self.chart['itemid'].isin(included_itemids))]
+
+            # OLD:
+            # self.chart=self.chart[self.chart['start_time']>=0]
                  
     def smooth_meds(self,bucket):
         """
@@ -372,16 +378,26 @@ class Generator():
                     
               ###OUT
              if(self.feat_out):
-                sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'subject_id':'max'})
+                sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'value':np.nanmean})
                 sub_out=sub_out.reset_index()
                 sub_out['start_time']=t
                 if final_out.empty:
                     final_out=sub_out
                 else:    
                     final_out=final_out.append(sub_out)
+
+            #   ###OUT (OLD)
+            #  if(self.feat_out):
+            #     sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'subject_id':'max'})
+            #     sub_out=sub_out.reset_index()
+            #     sub_out['start_time']=t
+            #     if final_out.empty:
+            #         final_out=sub_out
+            #     else:    
+            #         final_out=final_out.append(sub_out)
                     
                     
-              ###CHART
+              ###CHART 
              if(self.feat_chart):
                 sub_chart=self.chart[(self.chart['start_time']>=i) & (self.chart['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'valuenum':np.nanmean})
                 sub_chart=sub_chart.reset_index()
@@ -390,6 +406,7 @@ class Generator():
                     final_chart=sub_chart
                 else:    
                     final_chart=final_chart.append(sub_chart)
+
             
              t=t+1
         print("bucket",bucket)
@@ -413,7 +430,6 @@ class Generator():
             f2_out=final_out.groupby(['stay_id','itemid']).size()
             self.out_per_adm=f2_out.groupby('stay_id').sum().reset_index()[0].max() 
             self.outlength_per_adm=final_out.groupby('stay_id').size().max()
-            
             
         ###chart
         if(self.feat_chart):
@@ -485,6 +501,8 @@ class Generator():
             
         with open("./data/dict/metaDic", 'wb') as fp:
             pickle.dump(metaDic, fp)
+
+        
             
             
     def create_Dict(self,meds,proc,out,chart,los):

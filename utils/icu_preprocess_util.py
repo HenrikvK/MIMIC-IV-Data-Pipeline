@@ -195,6 +195,7 @@ def preproc_chart(root_dir: str, dataset_path: str, cohort_path:str, time_col:st
     nitem=[]
     nstay=[]
     nrows=0
+
     for chunk in tqdm(pd.read_csv(dataset_path, compression='gzip', usecols=usecols, dtype=dtypes, parse_dates=[time_col],chunksize=chunksize)):
         #print(chunk.head())
         count=count+1
@@ -205,7 +206,7 @@ def preproc_chart(root_dir: str, dataset_path: str, cohort_path:str, time_col:st
         
         del chunk_merged[time_col] 
         del chunk_merged['intime']
-        chunk_merged=chunk_merged.dropna()
+        # chunk_merged=chunk_merged.dropna()
         chunk_merged=chunk_merged.drop_duplicates()
         if df_cohort.empty:
             df_cohort=chunk_merged
