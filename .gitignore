@@ -3,3 +3,5 @@ scrap
 *.gzip
 *.csv.gz
 *summary*.txt
+*.csv
+*.parquet
