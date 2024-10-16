@@ -15,11 +15,11 @@ if not os.path.exists("./data/csv"):
     os.makedirs("./data/csv")
     
 class Generator():
-    def __init__(self,cohort_output,if_mort,if_admn,if_los,feat_cond,feat_proc,feat_out,feat_chart,feat_med,impute,include_time=24,bucket=1,predW=6):
+    def __init__(self,root_dir, cohort_output,if_mort,if_admn,if_los,feat_cond,feat_proc,feat_out,feat_chart,feat_med,impute,include_time=24,bucket=1,predW=6):
         self.feat_cond,self.feat_proc,self.feat_out,self.feat_chart,self.feat_med = feat_cond,feat_proc,feat_out,feat_chart,feat_med
         self.cohort_output=cohort_output
         self.impute=impute
-        self.data = self.generate_adm()
+        self.data = self.generate_adm(root_dir = root_dir)
         print("[ READ COHORT ]")
         
         self.generate_feat()
@@ -55,8 +55,9 @@ class Generator():
             print("[ ======READING MEDICATIONS ]")
             self.generate_meds()
 
-    def generate_adm(self):
-        data=pd.read_csv(f"./data/cohort/{self.cohort_output}.csv.gz", compression='gzip', header=0, index_col=None)
+    def generate_adm(self, root_dir : str):
+        data=pd.read_csv(root_dir + f"/data/cohort/{self.cohort_output}.csv.gz", compression='gzip', header=0, index_col=None)
+        # data=pd.read_csv(root_dir + f"./data/cohort/{self.cohort_output}.csv.gz", compression='gzip', header=0, index_col=None)
         data['intime'] = pd.to_datetime(data['intime'])
         data['outtime'] = pd.to_datetime(data['outtime'])
         data['los']=pd.to_timedelta(data['outtime']-data['intime'],unit='h')
@@ -205,6 +206,7 @@ class Generator():
             self.chart=self.chart[self.chart['start_time']<=include_time]
         
         #self.los=include_time
+    
     def los_length(self,include_time):
         print("include_time",include_time)
         self.los=include_time
@@ -280,10 +282,63 @@ class Generator():
             self.chart=self.chart[self.chart['stay_id'].isin(self.data['stay_id'])]
             self.chart=pd.merge(self.chart,self.data[['stay_id','select_time']],on='stay_id',how='left')
             self.chart['start_time']=self.chart['start_time']-self.chart['select_time']
-            self.chart=self.chart[self.chart['start_time']>=0]
-        
-            
+            # WARNING: HARD-INCLUDE SOME FEATURE THAT HAPPENED BEFORE ADMISSION TO ICU (e.g. weight)
+            included_itemids = ["226512",  "226531" , "224639"]
+            # Apply the filter condition only to rows where 'itemid' is NOT in included_itemids
+            self.chart = self.chart[(self.chart['start_time'] >= 0) | (self.chart['itemid'].isin(included_itemids))]
+
+            # OLD:
+            # self.chart=self.chart[self.chart['start_time']>=0]
+                 
     def smooth_meds(self,bucket):
+        """
+        Smooth and aggregate time-series data for medications, procedures, output events, 
+        and chart events into time intervals based on the specified `bucket` size (time interval).
+
+        This function processes each type of medical data (medications, procedures, output events, 
+        and chart events) by grouping and aggregating them into fixed-length time intervals (`bucket`), 
+        smoothing over these intervals, and then generating time-aligned features for each patient 
+        stay (`stay_id`). The function works in four steps:
+        
+        1. Sorts the relevant medical data based on the start time of the event.
+        2. Iterates over the entire length of stay (`los`), and for each time bucket, 
+        groups the events by stay ID and aggregates various fields such as event duration 
+        or measurement values (depending on the type of event).
+        3. Aggregates the data per bucket and appends it to the final dataframe.
+        4. Calculates per-patient summary statistics such as the number of events 
+        (e.g., procedures, medications) per admission.
+
+        Parameters
+        ----------
+        bucket : int
+            The time interval (in hours) for smoothing the data. All events occurring 
+            within this interval are grouped and summarized.
+
+        Attributes
+        ----------
+        final_meds : DataFrame
+            Aggregated medication data, grouped and smoothed by `bucket` intervals.
+        final_proc : DataFrame
+            Aggregated procedure data, grouped and smoothed by `bucket` intervals.
+        final_out : DataFrame
+            Aggregated output event data, grouped and smoothed by `bucket` intervals.
+        final_chart : DataFrame
+            Aggregated chart event data, grouped and smoothed by `bucket` intervals.
+
+        Example
+        -------
+        Given a bucket size of 1 hour, medications, procedures, output events, 
+        and chart events are grouped into 1-hour intervals, smoothed, and the relevant 
+        statistics are calculated for each patient.
+        
+        Notes
+        -----
+        - This function handles large medical datasets and performs time-based aggregation.
+        - The bucket size controls how data is summarized over time.
+        - After processing, the function generates dictionaries of processed features 
+        for further use in modeling or analysis.
+        
+        """
         final_meds=pd.DataFrame()
         final_proc=pd.DataFrame()
         final_out=pd.DataFrame()
@@ -323,16 +378,26 @@ class Generator():
                     
               ###OUT
              if(self.feat_out):
-                sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'subject_id':'max'})
+                sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'value':np.nanmean})
                 sub_out=sub_out.reset_index()
                 sub_out['start_time']=t
                 if final_out.empty:
                     final_out=sub_out
                 else:    
                     final_out=final_out.append(sub_out)
+
+            #   ###OUT (OLD)
+            #  if(self.feat_out):
+            #     sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'subject_id':'max'})
+            #     sub_out=sub_out.reset_index()
+            #     sub_out['start_time']=t
+            #     if final_out.empty:
+            #         final_out=sub_out
+            #     else:    
+            #         final_out=final_out.append(sub_out)
                     
                     
-              ###CHART
+              ###CHART 
              if(self.feat_chart):
                 sub_chart=self.chart[(self.chart['start_time']>=i) & (self.chart['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'valuenum':np.nanmean})
                 sub_chart=sub_chart.reset_index()
@@ -341,6 +406,7 @@ class Generator():
                     final_chart=sub_chart
                 else:    
                     final_chart=final_chart.append(sub_chart)
+
             
              t=t+1
         print("bucket",bucket)
@@ -364,7 +430,6 @@ class Generator():
             f2_out=final_out.groupby(['stay_id','itemid']).size()
             self.out_per_adm=f2_out.groupby('stay_id').sum().reset_index()[0].max() 
             self.outlength_per_adm=final_out.groupby('stay_id').size().max()
-            
             
         ###chart
         if(self.feat_chart):
@@ -436,6 +501,8 @@ class Generator():
             
         with open("./data/dict/metaDic", 'wb') as fp:
             pickle.dump(metaDic, fp)
+
+        
             
             
     def create_Dict(self,meds,proc,out,chart,los):

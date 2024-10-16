@@ -189,7 +189,7 @@ def get_range(df: pd.DataFrame, time_col:str, anchor_col:str, measure='days') ->
     else:
         raise Exception('\'measure\' argument must be either \'years\' or \'days\'.')
 
-def preproc_meds(module_path:str, adm_cohort_path:str, mapping:str) -> pd.DataFrame:
+def preproc_meds(root_dir : str, module_path:str, adm_cohort_path:str, mapping:str) -> pd.DataFrame:
   
     adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'admittime'], parse_dates = ['admittime'])
     med = pd.read_csv(module_path, compression='gzip', usecols=['subject_id', 'hadm_id', 'drug', 'starttime', 'stoptime','ndc','dose_val_rx'], parse_dates = ['starttime', 'stoptime'])
@@ -289,9 +289,9 @@ def preproc_labs(dataset_path: str, version_path:str, cohort_path:str, time_col:
     df_cohort=pd.DataFrame()
     cohort = pd.read_csv(cohort_path, compression='gzip', parse_dates = ['admittime'])
     if version_path=="mimiciv/1.0":
-        adm = pd.read_csv("./"+version_path+"/core/admissions.csv.gz", header=0, index_col=None, compression='gzip', usecols=['subject_id', 'hadm_id', 'admittime', 'dischtime'], parse_dates=['admittime', 'dischtime'])
+        adm = pd.read_csv(version_path+"/core/admissions.csv.gz", header=0, index_col=None, compression='gzip', usecols=['subject_id', 'hadm_id', 'admittime', 'dischtime'], parse_dates=['admittime', 'dischtime'])
     elif version_path=="mimiciv/2.0":
-        adm = pd.read_csv("./"+version_path+"/hosp/admissions.csv.gz", header=0, index_col=None, compression='gzip', usecols=['subject_id', 'hadm_id', 'admittime', 'dischtime'], parse_dates=['admittime', 'dischtime'])
+        adm = pd.read_csv(version_path+"/hosp/admissions.csv.gz", header=0, index_col=None, compression='gzip', usecols=['subject_id', 'hadm_id', 'admittime', 'dischtime'], parse_dates=['admittime', 'dischtime'])
         
     # read module w/ custom params
     chunksize = 10000000
@@ -355,7 +355,7 @@ def preproc_labs(dataset_path: str, version_path:str, cohort_path:str, time_col:
     return df_cohort
     
     
-def preproc_proc(dataset_path: str, cohort_path:str, time_col:str, anchor_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
+def preproc_proc(root_dir: str, dataset_path: str, cohort_path:str, time_col:str, anchor_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
     """Function for getting hosp observations pertaining to a pickled cohort. Function is structured to save memory when reading and transforming data."""
 
     def merge_module_cohort() -> pd.DataFrame:
@@ -387,9 +387,10 @@ def preproc_proc(dataset_path: str, cohort_path:str, time_col:str, anchor_col:st
     # Only return module measurements within the observation range, sorted by subject_id
     return df_cohort
 
-def preproc_icd_module(module_path:str, adm_cohort_path:str, icd_map_path=None, map_code_colname=None, only_icd10=True) -> pd.DataFrame:
+def preproc_icd_module(root_dir: str, module_path:str, adm_cohort_path:str, icd_map_path=None, map_code_colname=None, only_icd10=True) -> pd.DataFrame:
     """Takes an module dataset with ICD codes and puts it in long_format, optionally mapping ICD-codes by a mapping table path"""    
     
+    adm_cohort_path = root_dir + adm_cohort_path
     def get_module_cohort(module_path:str, cohort_path:str):
         module = pd.read_csv(module_path, compression='gzip', header=0)
         adm_cohort = pd.read_csv(adm_cohort_path, compression='gzip', header=0)

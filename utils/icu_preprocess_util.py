@@ -107,7 +107,7 @@ def read_icd_mapping(map_path):
 
 ########################## PREPROCESSING ##########################
 
-def preproc_meds(module_path:str, adm_cohort_path:str) -> pd.DataFrame:
+def preproc_meds(root_dir: str, module_path:str, adm_cohort_path:str) -> pd.DataFrame:
   
     adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates = ['intime'])
     med = pd.read_csv(module_path, compression='gzip', usecols=['subject_id', 'stay_id', 'itemid', 'starttime', 'endtime','rate','amount','orderid'], parse_dates = ['starttime', 'endtime'])
@@ -124,7 +124,7 @@ def preproc_meds(module_path:str, adm_cohort_path:str) -> pd.DataFrame:
     
     return med
     
-def preproc_proc(dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
+def preproc_proc(root_dir: str, dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
     """Function for getting hosp observations pertaining to a pickled cohort. Function is structured to save memory when reading and transforming data."""
 
     def merge_module_cohort() -> pd.DataFrame:
@@ -154,7 +154,7 @@ def preproc_proc(dataset_path: str, cohort_path:str, time_col:str, dtypes: dict,
     # Only return module measurements within the observation range, sorted by subject_id
     return df_cohort
 
-def preproc_out(dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
+def preproc_out(root_dir: str, dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
     """Function for getting hosp observations pertaining to a pickled cohort. Function is structured to save memory when reading and transforming data."""
 
     def merge_module_cohort() -> pd.DataFrame:
@@ -183,7 +183,7 @@ def preproc_out(dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, 
     # Only return module measurements within the observation range, sorted by subject_id
     return df_cohort
 
-def preproc_chart(dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
+def preproc_chart(root_dir: str, dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
     """Function for getting hosp observations pertaining to a pickled cohort. Function is structured to save memory when reading and transforming data."""
     
     # Only consider values in our cohort
@@ -195,6 +195,7 @@ def preproc_chart(dataset_path: str, cohort_path:str, time_col:str, dtypes: dict
     nitem=[]
     nstay=[]
     nrows=0
+
     for chunk in tqdm(pd.read_csv(dataset_path, compression='gzip', usecols=usecols, dtype=dtypes, parse_dates=[time_col],chunksize=chunksize)):
         #print(chunk.head())
         count=count+1
@@ -205,7 +206,7 @@ def preproc_chart(dataset_path: str, cohort_path:str, time_col:str, dtypes: dict
         
         del chunk_merged[time_col] 
         del chunk_merged['intime']
-        chunk_merged=chunk_merged.dropna()
+        # chunk_merged=chunk_merged.dropna()
         chunk_merged=chunk_merged.drop_duplicates()
         if df_cohort.empty:
             df_cohort=chunk_merged
@@ -230,7 +231,7 @@ def preproc_chart(dataset_path: str, cohort_path:str, time_col:str, dtypes: dict
     # Only return module measurements within the observation range, sorted by subject_id
     return df_cohort
 
-def preproc_icd_module(module_path:str, adm_cohort_path:str, icd_map_path=None, map_code_colname=None, only_icd10=True) -> pd.DataFrame:
+def preproc_icd_module(root_dir: str, module_path:str, adm_cohort_path:str, icd_map_path=None, map_code_colname=None, only_icd10=True) -> pd.DataFrame:
     """Takes an module dataset with ICD codes and puts it in long_format, optionally mapping ICD-codes by a mapping table path"""    
     
     def get_module_cohort(module_path:str, cohort_path:str):
