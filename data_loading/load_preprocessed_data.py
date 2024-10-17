@@ -37,7 +37,7 @@ class DataLoader():
 
         self.generate_feat()
         print("[ READ ALL FEATURES ]")
-
+        
         if self.if_mort:
             self.mortality_length(self.include_time,self.predW)
             print("[ PROCESSED TIME SERIES TO EQUAL LENGTH  ]")
@@ -165,6 +165,7 @@ class DataLoader():
         chunksize = 5000000
         final=pd.DataFrame()
         for chart in tqdm(pd.read_csv("./data/features/preproc_chart_icu.csv.gz", compression='gzip', header=0, index_col=None,chunksize=chunksize)):
+            
             chart=chart[chart['stay_id'].isin(self.data['stay_id'])]
             chart[['start_days', 'dummy','start_hours']] = chart['event_time_from_admit'].str.split(' ', -1, expand=True)
             chart[['start_hours','min','sec']] = chart['start_hours'].str.split(':', -1, expand=True)
@@ -185,7 +186,7 @@ class DataLoader():
                 final=final.append(chart, ignore_index=True)
         
         self.chart=final
-        
+
         
         
     def generate_meds(self):
@@ -438,7 +439,6 @@ class DataLoader():
             self.meds=self.meds[self.meds['start_time']<=include_time]
             self.meds.loc[self.meds.stop_time >include_time, 'stop_time']=include_time
                     
-        
         ###PROCS
         if(self.feat_proc):
             self.proc=self.proc[self.proc['stay_id'].isin(self.data['stay_id'])]
@@ -547,9 +547,16 @@ class DataLoader():
             self.chart=self.chart[self.chart['stay_id'].isin(self.data['stay_id'])]
             self.chart=pd.merge(self.chart,self.data[['stay_id','select_time']],on='stay_id',how='left')
             self.chart['start_time']=self.chart['start_time']-self.chart['select_time']
-            self.chart=self.chart[self.chart['start_time']>=0]
-        
-            
+
+            # WARNING: HARD-INCLUDE SOME FEATURE THAT HAPPENED BEFORE ADMISSION TO ICU (e.g. weight)
+            included_itemids = ["226512",  "226531" , "224639"]
+            # Apply the filter condition only to rows where 'itemid' is NOT in included_itemids
+            self.chart = self.chart[(self.chart['start_time'] >= 0) | (self.chart['itemid'].isin(included_itemids))]
+
+            # OLD:
+            # self.chart=self.chart[self.chart['start_time']>=0]
+
+
     def smooth_meds(self,bucket):
         """
         Smooth and aggregate time-series data for medications, procedures, output events, 

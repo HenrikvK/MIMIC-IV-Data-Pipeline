@@ -978,7 +978,7 @@ class Generator():
 
         if(self.feat_micro):
             with open("./data/dict/microVocab", 'wb') as fp:
-                pickle.dump(list(micro['itemid'].unique()), fp)
+                pickle.dump(list(micro['test_itemid'].unique()), fp)
             self.micro_vocab = meds['test_itemid'].nunique()
             metaDic['Micro']=self.micro_per_adm
             

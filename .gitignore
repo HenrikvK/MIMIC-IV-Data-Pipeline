@@ -5,3 +5,6 @@ scrap
 *summary*.txt
 *.csv
 *.parquet
+labevents_test.ipynb
+data/
+*.pvs
