@@ -28,8 +28,8 @@ if not os.path.exists("./data/features"):
     os.makedirs("./data/features")
 if not os.path.exists("./data/features/chartevents"):
     os.makedirs("./data/features/chartevents")
-
-def feature_icu(cohort_output, root_dir: str, version_path, diag_flag=True,out_flag=True,chart_flag=True,proc_flag=True,med_flag=True):
+#def feature_icu(cohort_output, root_dir: str, version_path, diag_flag=True,out_flag=True,chart_flag=True,proc_flag=True,med_flag=True):
+def feature_icu(cohort_output, root_dir: str, version_path, diag_flag=True,out_flag=True,chart_flag=True,proc_flag=True,med_flag=True,lab_flag=True,micro_flag=True):
     if diag_flag:
         print("[EXTRACTING DIAGNOSIS DATA]")
         diag = preproc_icd_module(root_dir, version_path+"/hosp/diagnoses_icd.csv.gz", root_dir + '/data/cohort/'+ cohort_output+'.csv.gz', './utils/mappings/ICD9_to_ICD10_mapping.txt', map_code_colname='diagnosis_code')
@@ -40,8 +40,17 @@ def feature_icu(cohort_output, root_dir: str, version_path, diag_flag=True,out_f
     if out_flag:  
         print("[EXTRACTING OUPTPUT EVENTS DATA]")
         out = preproc_out(root_dir, version_path+"/icu/outputevents.csv.gz", root_dir + '/data/cohort/'+cohort_output+'.csv.gz', 'charttime', dtypes=None, usecols=None)
+<<<<<<< HEAD
+<<<<<<< HEAD
+        out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit', "value"]].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
+=======
         # out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit']].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
         out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit', 'value']].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
+>>>>>>> 0259719662cf49b02db6acf09e08eca21701f638
+=======
+        # out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit']].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
+        out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit', 'value']].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
+>>>>>>> origin/main
         print("[SUCCESSFULLY SAVED OUPTPUT EVENTS DATA]")
     
     if chart_flag:
@@ -62,6 +71,19 @@ def feature_icu(cohort_output, root_dir: str, version_path, diag_flag=True,out_f
         med = preproc_meds(root_dir, version_path+"/icu/inputevents.csv.gz", root_dir + '/data/cohort/'+cohort_output+'.csv.gz')
         med[['subject_id', 'hadm_id', 'stay_id', 'itemid' ,'starttime','endtime', 'start_hours_from_admit', 'stop_hours_from_admit','rate','amount','orderid']].to_csv('./data/features/preproc_med_icu.csv.gz', compression='gzip', index=False)
         print("[SUCCESSFULLY SAVED MEDICATIONS DATA]")
+
+    if lab_flag:
+        print("[EXTRACTING LAB EVENTS DATA]")
+        lab = preproc_lab(root_dir, version_path+"/hosp/labevents.csv.gz", root_dir + '/data/cohort/'+cohort_output+'.csv.gz')
+        lab[["subject_id", 'hadm_id', "stay_id", 'itemid', 'charttime', 'storetime', 'valuenum',
+       'valueuom', 'ref_range_lower', 'ref_range_upper', "start_hours_from_admit", 'stop_hours_from_admit']].to_csv('./data/features/preproc_labevents_icu.csv.gz', compression='gzip', index=False)
+        print("[SUCCESSFULLY SAVED LAB EVENTS DATA]")
+
+    if micro_flag:
+        print("[EXTRACTING MICROBIOLOGY EVENTS DATA]")
+        micro = preproc_micro(root_dir, version_path+"/hosp/microbiologyevents.csv.gz", root_dir + '/data/cohort/'+cohort_output+'.csv.gz')
+        micro[['subject_id', 'hadm_id', "stay_id", "chartdate", 'charttime', 'spec_itemid', 'storedate', 'storetime', 'test_itemid', "start_hours_from_admit", 'stop_hours_from_admit']].to_csv('./data/features/preproc_microbiologyevents_icu.csv.gz', compression='gzip', index=False)
+        print("[SUCCESSFULLY SAVED MICROBIOLOGY EVENTS DATA]")
 
 def preprocess_features_icu(cohort_output, diag_flag, group_diag,chart_flag,clean_chart,impute_outlier_chart,thresh,left_thresh):
     if diag_flag:
@@ -97,7 +119,8 @@ def preprocess_features_icu(cohort_output, diag_flag, group_diag,chart_flag,clea
             
         
         
-def generate_summary_icu(diag_flag,proc_flag,med_flag,out_flag,chart_flag):
+#def generate_summary_icu(diag_flag,proc_flag,med_flag,out_flag,chart_flag, lab_flag):
+def generate_summary_icu(diag_flag,proc_flag,med_flag,out_flag,chart_flag, lab_flag, micro_flag):
     print("[GENERATING FEATURE SUMMARY]")
     if diag_flag:
         diag = pd.read_csv("./data/features/preproc_diag_icu.csv.gz", compression='gzip',header=0)
@@ -108,6 +131,36 @@ def generate_summary_icu(diag_flag,proc_flag,med_flag,out_flag,chart_flag):
         summary=summary.fillna(0)
         summary.to_csv('./data/summary/diag_summary.csv',index=False)
         summary['new_icd_code'].to_csv('./data/summary/diag_features.csv',index=False)
+
+    
+    #MANUALLY ADDED
+    if lab_flag:
+        lab = pd.read_csv("./data/features/preproc_labevents_icu.csv.gz", compression='gzip',header=0)
+        freq=lab.groupby(['stay_id','itemid']).size().reset_index(name="mean_frequency")
+        freq=freq.groupby(['itemid'])['mean_frequency'].mean().reset_index()
+        
+        #missing=lab[med['amount']==0].groupby('itemid').size().reset_index(name="missing_count")
+        total=lab.groupby('itemid').size().reset_index(name="total_count")
+        #summary=pd.merge(missing,total,on='itemid',how='right')
+        summary=pd.merge(freq,total,on='itemid',how='right')
+        #summary['missing%']=100*(summary['missing_count']/summary['total_count'])
+        summary=summary.fillna(0)
+        summary.to_csv('./data/summary/lab_summary.csv',index=False)
+        summary['itemid'].to_csv('./data/summary/lab_features.csv',index=False)
+
+    if micro_flag:
+        micro = pd.read_csv("./data/features/preproc_microbiologyevents_icu.csv.gz", compression='gzip',header=0)
+        freq=micro.groupby(['stay_id','test_itemid']).size().reset_index(name="mean_frequency")
+        freq=freq.groupby(['test_itemid'])['mean_frequency'].mean().reset_index()
+        
+        #missing=micro[micro['amount']==0].groupby('test_itemid').size().reset_index(name="missing_count")
+        total=micro.groupby('test_itemid').size().reset_index(name="total_count")
+        #summary=pd.merge(missing,total,on='test_itemid',how='right')
+        summary=pd.merge(freq,freq,on='test_itemid',how='right')
+        #summary['missing%']=100*(summary['missing_count']/summary['total_count'])
+        summary=summary.fillna(0)
+        summary.to_csv('./data/summary/micro_summary.csv',index=False)
+        summary['test_itemid'].to_csv('./data/summary/micro_features.csv',index=False)
 
 
     if med_flag:

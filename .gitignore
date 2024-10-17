@@ -3,12 +3,8 @@ scrap
 *.gzip
 *.csv.gz
 *summary*.txt
-
-# Ignore everything in the data folder
-data/*
-
-# Allow the folder itself to be tracked
-!data/
-
-# Optional: Allow tracking specific files within the data folder if needed
-#!data/some-important-file.csv
+*.csv
+*.parquet
+labevents_test.ipynb
+data/
+*.pvs

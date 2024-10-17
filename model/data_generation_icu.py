@@ -15,8 +15,8 @@ if not os.path.exists("./data/csv"):
     os.makedirs("./data/csv")
     
 class Generator():
-    def __init__(self,root_dir, cohort_output,if_mort,if_admn,if_los,feat_cond,feat_proc,feat_out,feat_chart,feat_med,impute,include_time=24,bucket=1,predW=6):
-        self.feat_cond,self.feat_proc,self.feat_out,self.feat_chart,self.feat_med = feat_cond,feat_proc,feat_out,feat_chart,feat_med
+    def __init__(self,root_dir, cohort_output,if_mort,if_admn,if_los,feat_cond,feat_proc,feat_out,feat_chart,feat_med,feat_lab,feat_micro,impute,include_time=24,bucket=1,predW=6):
+        self.feat_cond,self.feat_proc,self.feat_out,self.feat_chart,self.feat_med,self.feat_lab,self.feat_micro = feat_cond,feat_proc,feat_out,feat_chart,feat_med,feat_lab,feat_micro
         self.cohort_output=cohort_output
         self.impute=impute
         self.data = self.generate_adm(root_dir = root_dir)
@@ -54,6 +54,14 @@ class Generator():
         if(self.feat_med):
             print("[ ======READING MEDICATIONS ]")
             self.generate_meds()
+
+        #MANUAL INPUT
+        if(self.feat_lab):
+            print("[ ======READING LAB EVENTS ]")
+            self.generate_lab()
+        if(self.feat_micro):
+            print("[ ======READING MICROBIOLOGY EVENTS ]")
+            self.generate_micro()
 
     def generate_adm(self, root_dir : str):
         data=pd.read_csv(root_dir + f"/data/cohort/{self.cohort_output}.csv.gz", compression='gzip', header=0, index_col=None)
@@ -169,6 +177,67 @@ class Generator():
         meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
         
         self.meds=meds
+
+    #MANUAL INPUT
+    def generate_lab(self):
+        lab=pd.read_csv("./data/features/preproc_labevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
+        lab[['start_days', 'dummy','start_hours']] = lab['start_hours_from_admit'].str.split(' ', -1, expand=True)
+        lab[['start_hours','min','sec']] = lab['start_hours'].str.split(':', -1, expand=True)
+        lab['start_time']=pd.to_numeric(lab['start_days'])*24+pd.to_numeric(lab['start_hours'])
+        lab[['start_days', 'dummy','start_hours']] = lab['stop_hours_from_admit'].str.split(' ', -1, expand=True)
+        lab[['start_hours','min','sec']] = lab['start_hours'].str.split(':', -1, expand=True)
+        lab['stop_time']=pd.to_numeric(lab['start_days'])*24+pd.to_numeric(lab['start_hours'])
+        lab=lab.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
+        #####Sanity check
+        lab['sanity']=lab['stop_time']-lab['start_time']
+        lab=lab[lab['sanity']>0]
+        del lab['sanity']
+        #####Select hadm_id as in main file
+        lab=lab[lab['stay_id'].isin(self.data['stay_id'])]
+        lab=pd.merge(lab,self.data[['stay_id','los']],on='stay_id',how='left')
+
+        #####Remove where start time is after end of visit
+        lab['sanity']=lab['los']-lab['start_time']
+        lab=lab[lab['sanity']>0]
+        del lab['sanity']
+        ####Any stop_time after end of visit is set at end of visit
+        lab.loc[lab['stop_time'] > lab['los'],'stop_time']=lab.loc[lab['stop_time'] > lab['los'],'los']
+        del lab['los']
+        
+        #meds['rate']=meds['rate'].apply(pd.to_numeric, errors='coerce')
+        #meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
+        
+        self.lab=lab
+
+    def generate_micro(self):
+        meds=pd.read_csv("./data/features/preproc_microbiologyevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
+        meds[['start_days', 'dummy','start_hours']] = meds['start_hours_from_admit'].str.split(' ', -1, expand=True)
+        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
+        meds['start_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
+        meds[['start_days', 'dummy','start_hours']] = meds['stop_hours_from_admit'].str.split(' ', -1, expand=True)
+        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
+        meds['stop_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
+        meds=meds.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
+        #####Sanity check
+        meds['sanity']=meds['stop_time']-meds['start_time']
+        meds=meds[meds['sanity']>0]
+        del meds['sanity']
+        #####Select hadm_id as in main file
+        meds=meds[meds['stay_id'].isin(self.data['stay_id'])]
+        meds=pd.merge(meds,self.data[['stay_id','los']],on='stay_id',how='left')
+
+        #####Remove where start time is after end of visit
+        meds['sanity']=meds['los']-meds['start_time']
+        meds=meds[meds['sanity']>0]
+        del meds['sanity']
+        ####Any stop_time after end of visit is set at end of visit
+        meds.loc[meds['stop_time'] > meds['los'],'stop_time']=meds.loc[meds['stop_time'] > meds['los'],'los']
+        del meds['los']
+        
+        #meds['rate']=meds['rate'].apply(pd.to_numeric, errors='coerce')
+        #meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
+        
+        self.micro= meds
     
     def mortality_length(self,include_time,predW):
         print("include_time",include_time)
@@ -343,6 +412,10 @@ class Generator():
         final_proc=pd.DataFrame()
         final_out=pd.DataFrame()
         final_chart=pd.DataFrame()
+
+        #manual input
+        final_lab=pd.DataFrame()
+        final_micro=pd.DataFrame()
         
         if(self.feat_med):
             self.meds=self.meds.sort_values(by=['start_time'])
@@ -352,6 +425,10 @@ class Generator():
             self.out=self.out.sort_values(by=['start_time'])
         if(self.feat_chart):
             self.chart=self.chart.sort_values(by=['start_time'])
+        if(self.feat_lab):
+            self.lab=self.lab.sort_values(by=['start_time'])
+        if(self.feat_micro):
+            self.micro=self.micro.sort_values(by=['start_time'])
         
         t=0
         for i in tqdm(range(0,self.los,bucket)): 
@@ -365,6 +442,29 @@ class Generator():
                     final_meds=sub_meds
                 else:
                     final_meds=final_meds.append(sub_meds)
+
+            #manual input
+            ##LAB
+             if(self.feat_lab):
+                sub_lab=self.lab[(self.lab['start_time'] >= i) & (self.lab['start_time'] < i + bucket)].groupby(['stay_id', 'itemid']).agg({'stop_time': 'max','subject_id':'max','valuenum': np.nanmean,'ref_range_lower': np.nanmean,'ref_range_upper': np.nanmean,'valueuom': 'max'})
+                sub_lab=sub_lab.reset_index()
+                sub_lab['start_time']=t
+                sub_lab['stop_time']=sub_lab['stop_time']/bucket
+                if final_lab.empty:
+                    final_lab=sub_lab
+                else:
+                    final_lab=final_lab.append(sub_lab)
+
+            ##MICRO
+             if(self.feat_micro):
+                sub_micro=self.micro[(self.micro['start_time']>=i) & (self.micro['start_time']<i+bucket)].groupby(['stay_id','test_itemid']).agg({'stop_time':'max','subject_id':'max','spec_itemid':"max"})
+                sub_micro=sub_micro.reset_index()
+                sub_micro['start_time']=t
+                sub_micro['stop_time']=sub_micro['stop_time']/bucket
+                if final_micro.empty:
+                    final_micro=sub_micro
+                else:
+                    final_micro=final_micro.append(sub_micro)
             
             ###PROC
              if(self.feat_proc):
@@ -418,6 +518,19 @@ class Generator():
             f2_meds=final_meds.groupby(['stay_id','itemid','orderid']).size()
             self.med_per_adm=f2_meds.groupby('stay_id').sum().reset_index()[0].max()                 
             self.medlength_per_adm=final_meds.groupby('stay_id').size().max()
+
+        #manual input
+        ##LAB
+        if(self.feat_lab):
+            f2_lab=final_lab.groupby(['stay_id','itemid']).size()
+            self.lab_per_adm=f2_lab.groupby('stay_id').sum().reset_index()[0].max()                 
+            self.lablength_per_adm=final_lab.groupby('stay_id').size().max()
+
+        ##MICRO
+        if(self.feat_micro):
+            f2_micro=final_micro.groupby(['stay_id',"test_itemid"]).size()
+            self.micro_per_adm=f2_micro.groupby('stay_id').sum().reset_index()[0].max()                 
+            self.microlength_per_adm=final_micro.groupby('stay_id').size().max()
         
         ###PROC
         if(self.feat_proc):
@@ -442,7 +555,7 @@ class Generator():
 #         if(self.feat_chart):
 #             self.create_chartDict(final_chart,los)
 #         else:
-        self.create_Dict(final_meds,final_proc,final_out,final_chart,los)
+        self.create_Dict(final_meds,final_proc,final_out,final_chart, final_lab, final_micro,los)
         
     
     def create_chartDict(self,chart,los):
@@ -505,7 +618,7 @@ class Generator():
         
             
             
-    def create_Dict(self,meds,proc,out,chart,los):
+    def create_Dict(self,meds,proc,out,chart, lab, micro,los):
         dataDic={}
         print(los)
         labels_csv=pd.DataFrame(columns=['stay_id','label'])
@@ -517,7 +630,8 @@ class Generator():
 
         for hid in self.hids:
             grp=self.data[self.data['stay_id']==hid]
-            dataDic[hid]={'Cond':{},'Proc':{},'Med':{},'Out':{},'Chart':{},'ethnicity':grp['ethnicity'].iloc[0],'age':int(grp['Age']),'gender':grp['gender'].iloc[0],'label':int(grp['label'])}
+            dataDic[hid]={'Cond':{},'Proc':{},'Med':{},'Out':{},'Chart':{},'Lab': {},   # Add Lab data
+            'Micro': {},'ethnicity':grp['ethnicity'].iloc[0],'age':int(grp['Age']),'gender':grp['gender'].iloc[0],'label':int(grp['label'])}
             labels_csv.loc[labels_csv['stay_id']==hid,'label']=int(grp['label'])
             
 
@@ -587,6 +701,112 @@ class Generator():
                     dyn_csv=amount
                 else:
                     dyn_csv=pd.concat([dyn_csv,amount],axis=1)
+
+
+            ###LAB
+            # LAB Processing
+            if(self.feat_lab):
+                feat = lab['itemid'].unique()  # unique lab test types
+                df2 = lab[lab['stay_id'] == hid]  # extract lab data for the current patient
+                if df2.shape[0] == 0:
+                    # If no lab data exists for this patient
+                    valuenum = pd.DataFrame(np.zeros([los, len(feat)]), columns=feat)
+                    valuenum = valuenum.fillna(0)
+                    valuenum.columns = pd.MultiIndex.from_product([["LABS"], valuenum.columns])
+                else:
+                    # Process valuenum (continuous lab test values)
+                    valuenum = df2.pivot_table(index='start_time', columns='itemid', values='valuenum')
+                    df2 = df2.pivot_table(index='start_time', columns='itemid', values='stop_time')
+
+                    # Handle missing time points
+                    add_indices = pd.Index(range(los)).difference(df2.index)
+                    add_df = pd.DataFrame(index=add_indices, columns=df2.columns).fillna(np.nan)
+                    df2 = pd.concat([df2, add_df])
+                    df2 = df2.sort_index()
+                    df2 = df2.ffill().fillna(0)
+
+                    # Fill missing values in valuenum
+                    valuenum = pd.concat([valuenum, add_df])
+                    valuenum = valuenum.sort_index()
+                    valuenum = valuenum.ffill().fillna(-1)
+
+                    # Binary mask logic: positive/negative time adjustments
+                    df2.iloc[:, 0:] = df2.iloc[:, 0:].sub(df2.index, 0)
+                    df2[df2 > 0] = 1
+                    df2[df2 < 0] = 0
+
+                    # Apply the mask to valuenum
+                    valuenum.iloc[:, 0:] = df2.iloc[:, 0:] * valuenum.iloc[:, 0:]
+
+                    # Store the processed lab data
+                    dataDic[hid]['Lab']['valuenum'] = valuenum.iloc[:, 0:].to_dict(orient="list")
+
+                    # Handle missing lab test features
+                    feat_df = pd.DataFrame(columns=list(set(feat) - set(valuenum.columns)))
+                    valuenum = pd.concat([valuenum, feat_df], axis=1)
+                    valuenum = valuenum[feat].fillna(0)
+
+                    # Assign multi-level column headers for lab data
+                    valuenum.columns = pd.MultiIndex.from_product([["LABS"], valuenum.columns])
+
+                # Append lab data to the dynamic CSV
+                if dyn_csv.empty:
+                    dyn_csv = valuenum
+                else:
+                    dyn_csv = pd.concat([dyn_csv, valuenum], axis=1)
+
+            # MICRO Processing
+            if(self.feat_micro):
+                feat = micro['spec_itemid'].unique()  # unique specimen IDs
+                df2 = micro[micro['stay_id'] == hid]  # extract micro data for the current patient
+                if df2.shape[0] == 0:
+                    # If no microbiology data exists for this patient
+                    spec_itemid = pd.DataFrame(np.zeros([los, len(feat)]), columns=feat)
+                    spec_itemid = spec_itemid.fillna(0)
+                    spec_itemid.columns = pd.MultiIndex.from_product([["MICRO"], spec_itemid.columns])
+                else:
+                    # Process spec_itemid (discrete specimen IDs)
+                    #import pdb
+                    #pdb.set_trace()
+                    spec_itemid = df2.pivot_table(index='start_time', columns='test_itemid', values='spec_itemid', aggfunc='first')
+                    df2 = df2.pivot_table(index='start_time', columns='spec_itemid', values='stop_time')
+
+                    # Handle missing time points
+                    add_indices = pd.Index(range(los)).difference(df2.index)
+                    add_df = pd.DataFrame(index=add_indices, columns=df2.columns).fillna(np.nan)
+                    df2 = pd.concat([df2, add_df])
+                    df2 = df2.sort_index()
+                    df2 = df2.ffill().fillna(0)
+
+                    # Fill missing values in spec_itemid
+                    spec_itemid = pd.concat([spec_itemid, add_df])
+                    spec_itemid = spec_itemid.sort_index()
+                    spec_itemid = spec_itemid.ffill().fillna(-1)
+
+                    # Binary mask logic: positive/negative time adjustments
+                    df2.iloc[:, 0:] = df2.iloc[:, 0:].sub(df2.index, 0)
+                    df2[df2 > 0] = 1
+                    df2[df2 < 0] = 0
+
+                    # Apply the mask to spec_itemid
+                    spec_itemid.iloc[:, 0:] = df2.iloc[:, 0:] * spec_itemid.iloc[:, 0:]
+
+                    # Store the processed microbiology data
+                    dataDic[hid]['Micro']['spec_itemid'] = spec_itemid.iloc[:, 0:].to_dict(orient="list")
+
+                    # Handle missing specimen IDs
+                    feat_df = pd.DataFrame(columns=list(set(feat) - set(spec_itemid.columns)))
+                    spec_itemid = pd.concat([spec_itemid, feat_df], axis=1)
+                    spec_itemid = spec_itemid[feat].fillna(0)
+
+                    # Assign multi-level column headers for microbiology data
+                    spec_itemid.columns = pd.MultiIndex.from_product([["MICRO"], spec_itemid.columns])
+
+                # Append micro data to the dynamic CSV
+                if dyn_csv.empty:
+                    dyn_csv = spec_itemid
+                else:
+                    dyn_csv = pd.concat([dyn_csv, spec_itemid], axis=1)
                 
                 
                 
@@ -742,7 +962,7 @@ class Generator():
             
                 
         ######SAVE DICTIONARIES##############
-        metaDic={'Cond':{},'Proc':{},'Med':{},'Out':{},'Chart':{},'LOS':{}}
+        metaDic={'Cond':{},'Proc':{},'Med':{},'Out':{},'Chart':{}, 'Lab': {}, 'Micro': {},'LOS':{}}
         metaDic['LOS']=los
         with open("./data/dict/dataDic", 'wb') as fp:
             pickle.dump(dataDic, fp)
@@ -767,6 +987,18 @@ class Generator():
                 pickle.dump(list(meds['itemid'].unique()), fp)
             self.med_vocab = meds['itemid'].nunique()
             metaDic['Med']=self.med_per_adm
+
+        if(self.feat_lab):
+            with open("./data/dict/labVocab", 'wb') as fp:
+                pickle.dump(list(meds['itemid'].unique()), fp)
+            self.lab_vocab = meds['itemid'].nunique()
+            metaDic['Lab']=self.lab_per_adm
+
+        if(self.feat_micro):
+            with open("./data/dict/microVocab", 'wb') as fp:
+                pickle.dump(list(micro['test_itemid'].unique()), fp)
+            self.micro_vocab = meds['test_itemid'].nunique()
+            metaDic['Micro']=self.micro_per_adm
             
         if(self.feat_out):
             with open("./data/dict/outVocab", 'wb') as fp:

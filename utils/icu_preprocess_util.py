@@ -107,6 +107,52 @@ def read_icd_mapping(map_path):
 
 ########################## PREPROCESSING ##########################
 
+#MANUALLY ADDED
+def preproc_lab(root_dir: str, module_path:str, adm_cohort_path:str) -> pd.DataFrame:
+  
+    adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates = ['intime'])
+    lab = pd.read_csv(module_path, compression='gzip', usecols=["subject_id", 'hadm_id', 'itemid', 'charttime', 'storetime', 'valuenum',
+       'valueuom', 'ref_range_lower', 'ref_range_upper'], parse_dates = ['charttime', 'storetime'])
+    #lab = pd.read_parquet(module_path, columns=['labevent_id', 'subject_id', 'hadm_id', 'specimen_id', 'itemid', 'order_provider_id', 'charttime', 'storetime', 'value', 'valuenum', #'valueuom', 'ref_range_lower', 'ref_range_upper', 'flag', 'priority', 'comments'], parse_dates = ['charttime', 'storetime'])
+    
+    #['labevent_id', 'subject_id', 'hadm_id', 'specimen_id', 'itemid',
+    #   'order_provider_id', 'charttime', 'storetime', 'value', 'valuenum',
+    #   'valueuom', 'ref_range_lower', 'ref_range_upper', 'flag', 'priority',
+    #   'comments']
+    
+    lab = lab.merge(adm, left_on = 'hadm_id', right_on = 'hadm_id', how = 'inner')
+    lab['start_hours_from_admit'] = lab['charttime'] - lab['intime']
+    lab['stop_hours_from_admit'] = lab['storetime'] - lab['intime']
+    
+    #print(med.isna().sum())
+    lab=lab.dropna()
+    #med[['amount','rate']]=med[['amount','rate']].fillna(0)
+    print("# of unique type of lab events: ", lab.itemid.nunique())
+    print("# Admissions:  ", lab.stay_id.nunique())
+    print("# Total rows",  lab.shape[0])
+    
+    return lab
+
+def preproc_micro(root_dir: str, module_path:str, adm_cohort_path:str) -> pd.DataFrame:
+  
+    adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates = ['intime'])
+    micro = pd.read_csv(module_path, compression='gzip', usecols=['subject_id', 'hadm_id', "chartdate", 'charttime', 'spec_itemid', 'storedate', 'storetime', 'test_itemid'], parse_dates = ['charttime', 'storetime'])
+    
+    micro = micro.merge(adm, left_on = 'hadm_id', right_on = 'hadm_id', how = 'inner')
+    micro['start_hours_from_admit'] = micro['charttime'] - micro['intime']
+    micro['stop_hours_from_admit'] = micro['storetime'] - micro['intime']
+    
+    #print(med.isna().sum())
+    #micro=micro.dropna()
+    #med[['amount','rate']]=med[['amount','rate']].fillna(0)
+    print("# of unique type of micro events: ", micro.test_itemid.nunique())
+    print("# Admissions:  ", micro.stay_id.nunique())
+    print("# Total rows",  micro.shape[0])
+    
+    return micro
+
+
+
 def preproc_meds(root_dir: str, module_path:str, adm_cohort_path:str) -> pd.DataFrame:
   
     adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates = ['intime'])

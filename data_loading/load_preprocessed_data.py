@@ -15,8 +15,8 @@ if not os.path.exists("./data/csv"):
     os.makedirs("./data/csv")
     
 class DataLoader():
-    def __init__(self,root_dir, cohort_output,if_mort,if_admn,if_los,feat_cond,feat_proc,feat_out,feat_chart,feat_med,impute,include_time=24,bucket=1,predW=72):
-        self.feat_cond,self.feat_proc,self.feat_out,self.feat_chart,self.feat_med = feat_cond,feat_proc,feat_out,feat_chart,feat_med
+    def __init__(self,root_dir, cohort_output,if_mort,if_admn,if_los,feat_cond,feat_proc,feat_out,feat_chart,feat_med,feat_lab,feat_micro,impute,include_time=24,bucket=1,predW=72):
+        self.feat_cond,self.feat_proc,self.feat_out,self.feat_chart,self.feat_med, self.feat_lab, self.feat_micro = feat_cond,feat_proc,feat_out,feat_chart,feat_med,feat_lab,feat_micro
         self.cohort_output=cohort_output
         self.root_dir   = root_dir 
         self.bucket     = bucket
@@ -56,6 +56,8 @@ class DataLoader():
         dataset['proc']     = self.proc
         dataset['out']      = self.out
         dataset['chart']    = self.chart
+        dataset['lab']    = self.lab
+        dataset['micro']    = self.micro
 
 
         
@@ -88,6 +90,13 @@ class DataLoader():
         if(self.feat_med):
             print("[ ======READING MEDICATIONS ]")
             self.generate_meds()
+          #MANUAL INPUT
+        if(self.feat_lab):
+            print("[ ======READING LAB EVENTS ]")
+            self.generate_lab()
+        if(self.feat_micro):
+            print("[ ======READING MICROBIOLOGY EVENTS ]")
+            self.generate_micro()
 
     def generate_adm(self, root_dir : str):
         """
@@ -209,6 +218,66 @@ class DataLoader():
         meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
         
         self.meds=meds
+
+    def generate_lab(self):
+        meds=pd.read_csv("./data/features/preproc_labevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
+        meds[['start_days', 'dummy','start_hours']] = meds['start_hours_from_admit'].str.split(' ', -1, expand=True)
+        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
+        meds['start_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
+        meds[['start_days', 'dummy','start_hours']] = meds['stop_hours_from_admit'].str.split(' ', -1, expand=True)
+        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
+        meds['stop_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
+        meds=meds.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
+        #####Sanity check
+        meds['sanity']=meds['stop_time']-meds['start_time']
+        meds=meds[meds['sanity']>0]
+        del meds['sanity']
+        #####Select hadm_id as in main file
+        meds=meds[meds['stay_id'].isin(self.data['stay_id'])]
+        meds=pd.merge(meds,self.data[['stay_id','los']],on='stay_id',how='left')
+
+        #####Remove where start time is after end of visit
+        meds['sanity']=meds['los']-meds['start_time']
+        meds=meds[meds['sanity']>0]
+        del meds['sanity']
+        ####Any stop_time after end of visit is set at end of visit
+        meds.loc[meds['stop_time'] > meds['los'],'stop_time']=meds.loc[meds['stop_time'] > meds['los'],'los']
+        del meds['los']
+        
+        #meds['rate']=meds['rate'].apply(pd.to_numeric, errors='coerce')
+        #meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
+        
+        self.lab=meds
+
+    def generate_micro(self):
+        meds=pd.read_csv("./data/features/preproc_microbiologyevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
+        meds[['start_days', 'dummy','start_hours']] = meds['start_hours_from_admit'].str.split(' ', -1, expand=True)
+        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
+        meds['start_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
+        meds[['start_days', 'dummy','start_hours']] = meds['stop_hours_from_admit'].str.split(' ', -1, expand=True)
+        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
+        meds['stop_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
+        meds=meds.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
+        #####Sanity check
+        meds['sanity']=meds['stop_time']-meds['start_time']
+        meds=meds[meds['sanity']>0]
+        del meds['sanity']
+        #####Select hadm_id as in main file
+        meds=meds[meds['stay_id'].isin(self.data['stay_id'])]
+        meds=pd.merge(meds,self.data[['stay_id','los']],on='stay_id',how='left')
+
+        #####Remove where start time is after end of visit
+        meds['sanity']=meds['los']-meds['start_time']
+        meds=meds[meds['sanity']>0]
+        del meds['sanity']
+        ####Any stop_time after end of visit is set at end of visit
+        meds.loc[meds['stop_time'] > meds['los'],'stop_time']=meds.loc[meds['stop_time'] > meds['los'],'los']
+        del meds['los']
+        
+        #meds['rate']=meds['rate'].apply(pd.to_numeric, errors='coerce')
+        #meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
+        
+        self.micro=meds
     
     def mortality_length(self,include_time,predW):
         """
