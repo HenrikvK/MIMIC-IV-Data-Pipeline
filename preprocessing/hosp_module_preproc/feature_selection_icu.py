@@ -41,11 +41,16 @@ def feature_icu(cohort_output, root_dir: str, version_path, diag_flag=True,out_f
         print("[EXTRACTING OUPTPUT EVENTS DATA]")
         out = preproc_out(root_dir, version_path+"/icu/outputevents.csv.gz", root_dir + '/data/cohort/'+cohort_output+'.csv.gz', 'charttime', dtypes=None, usecols=None)
 <<<<<<< HEAD
+<<<<<<< HEAD
         out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit', "value"]].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
 =======
         # out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit']].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
         out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit', 'value']].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
 >>>>>>> 0259719662cf49b02db6acf09e08eca21701f638
+=======
+        # out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit']].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
+        out[['subject_id', 'hadm_id', 'stay_id', 'itemid', 'charttime', 'intime', 'event_time_from_admit', 'value']].to_csv("./data/features/preproc_out_icu.csv.gz", compression='gzip', index=False)
+>>>>>>> origin/main
         print("[SUCCESSFULLY SAVED OUPTPUT EVENTS DATA]")
     
     if chart_flag:
