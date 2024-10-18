@@ -108,53 +108,189 @@ def read_icd_mapping(map_path):
 ########################## PREPROCESSING ##########################
 
 #MANUALLY ADDED
-def preproc_lab(root_dir: str, module_path:str, adm_cohort_path:str) -> pd.DataFrame:
-  
-    adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates = ['intime'])
-    lab = pd.read_csv(module_path, compression='gzip', usecols=["subject_id", 'hadm_id', 'itemid', 'charttime', 'storetime', 'valuenum',
-       'valueuom', 'ref_range_lower', 'ref_range_upper'], parse_dates = ['charttime', 'storetime'])
-    #lab = pd.read_parquet(module_path, columns=['labevent_id', 'subject_id', 'hadm_id', 'specimen_id', 'itemid', 'order_provider_id', 'charttime', 'storetime', 'value', 'valuenum', #'valueuom', 'ref_range_lower', 'ref_range_upper', 'flag', 'priority', 'comments'], parse_dates = ['charttime', 'storetime'])
-    
-    #['labevent_id', 'subject_id', 'hadm_id', 'specimen_id', 'itemid',
-    #   'order_provider_id', 'charttime', 'storetime', 'value', 'valuenum',
-    #   'valueuom', 'ref_range_lower', 'ref_range_upper', 'flag', 'priority',
-    #   'comments']
-    
-    lab = lab.merge(adm, left_on = 'hadm_id', right_on = 'hadm_id', how = 'inner')
-    lab['start_hours_from_admit'] = lab['charttime'] - lab['intime']
-    lab['stop_hours_from_admit'] = lab['storetime'] - lab['intime']
-    
-    #print(med.isna().sum())
-    lab=lab.dropna()
-    #med[['amount','rate']]=med[['amount','rate']].fillna(0)
-    print("# of unique type of lab events: ", lab.itemid.nunique())
-    print("# Admissions:  ", lab.stay_id.nunique())
-    print("# Total rows",  lab.shape[0])
-    
-    return lab
+def preproc_lab(module_path: str, adm_cohort_path: str) -> pd.DataFrame:
+    """
+    Preprocess laboratory event data for ICU patients.
 
-def preproc_micro(root_dir: str, module_path:str, adm_cohort_path:str) -> pd.DataFrame:
-  
-    adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates = ['intime'])
-    micro = pd.read_csv(module_path, compression='gzip', usecols=['subject_id', 'hadm_id', "chartdate", 'charttime', 'spec_itemid', 'storedate', 'storetime', 'test_itemid'], parse_dates = ['charttime', 'storetime'])
+    This function reads laboratory event data and admission cohort data, merges them, 
+    and calculates the time elapsed from patient admission to the lab event timestamps.
+
+    Parameters:
+    -----------
+    module_path : str
+        Path to the CSV file containing laboratory event data (compressed as gzip).
+        
+    adm_cohort_path : str
+        Path to the CSV file containing patient admission cohort data.
+
+    Returns:
+    --------
+    pd.DataFrame
+        A DataFrame containing the preprocessed laboratory event data with the following columns:
+        
+        - **subject_id**: Unique identifier for the patient.
+        - **hadm_id**: Hospital admission ID, linking laboratory events to specific hospital admissions.
+        - **itemid**: Identifier for the specific laboratory test, which can be cross-referenced with the items table for further details.
+        - **charttime**: Timestamp indicating when the laboratory observation was recorded.
+        - **storetime**: Timestamp indicating when the laboratory result was stored. This variable can be missing.
+        - **valuenum**: Numeric value of the laboratory test result (if applicable). 
+            -> This variable can be missing. Then maybe just the fact that the procedure was done is important. 
+        - **valueuom**: Unit of measurement for the test result. 
+            -> This variable can be missing. There could be no unit. 
+        - **ref_range_lower**: Lower bound of the reference range for the laboratory test (if available). This variable can be missing.
+        - **ref_range_upper**: Upper bound of the reference range for the laboratory test (if available). This variable can be missing.
+        - **stay_id**: Identifier for the patient's stay in the hospital.
+        - **intime**: Timestamp of the patient's admission to the ICU, allowing for temporal analysis of events.
+        - **chart_hours_from_admit**: Time elapsed from the patient's admission to the lab event's charttime.
+        - **store_hours_from_admit**: Time elapsed from the patient's admission to the lab event's storetime. This variable can be missing.
+
+    Remarks:
+    --------
+    It is recommended to handle missing values appropriately based on the context of analysis.
+    """
+    adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates=['intime'])
     
-    micro = micro.merge(adm, left_on = 'hadm_id', right_on = 'hadm_id', how = 'inner')
-    micro['start_hours_from_admit'] = micro['charttime'] - micro['intime']
-    micro['stop_hours_from_admit'] = micro['storetime'] - micro['intime']
+    # Initialize an empty DataFrame to store the processed lab data
+    df_lab = pd.DataFrame()
     
-    #print(med.isna().sum())
-    #micro=micro.dropna()
-    #med[['amount','rate']]=med[['amount','rate']].fillna(0)
-    print("# of unique type of micro events: ", micro.test_itemid.nunique())
-    print("# Admissions:  ", micro.stay_id.nunique())
-    print("# Total rows",  micro.shape[0])
+    # Read the lab events data in chunks
+    chunksize = 1000000  # Adjust as necessary for your memory constraints
+    for chunk in tqdm(pd.read_csv(module_path, compression='gzip', 
+                                   usecols=["subject_id", 'hadm_id', 'itemid', 
+                                             'charttime', 'storetime', 'valuenum',
+                                             'valueuom', 'ref_range_lower', 
+                                             'ref_range_upper'], 
+                                   parse_dates=['charttime', 'storetime'], 
+                                   chunksize=chunksize)):
+        # Merge with admission data
+        chunk_merged = chunk.merge(adm, on='hadm_id', how='inner')
+        
+        # Calculate time elapsed from admission
+        chunk_merged['chart_hours_from_admit'] = chunk_merged['charttime'] - chunk_merged['intime']
+        chunk_merged['store_hours_from_admit'] = chunk_merged['storetime'] - chunk_merged['intime']
+        
+        # Append the processed chunk to the main DataFrame
+        df_lab = pd.concat([df_lab, chunk_merged], ignore_index=True)
+
+    print("# of unique type of lab events: ", df_lab.itemid.nunique())
+    print("# Admissions:  ", df_lab.stay_id.nunique())
+    print("# Total rows",  df_lab.shape[0])
     
-    return micro
+    return df_lab
+
+def preproc_micro( module_path:str, adm_cohort_path:str) -> pd.DataFrame:
+    """
+    Preprocess microbiology test data for ICU patients.
+    WARNING: Processing microbiology is difficult and currently not done correctly. 
+    Each entry has a `test_itemid` which tells us that a certain test was performed. 
+    The test is performed on a `spec_itemid` which tells us the specimen that was taken from the patient. 
+    If the test found something, we also have a `org_name` which tells us which organism was found. 
+    More organisms were however tested for an must be zero in that case. The list of organisms that 
+    were tested by a specific test_itemid is not clear. there might be a table though. 
 
 
+    Parameters:
+    -----------
+    module_path : str
+        Path to the CSV file containing microbiology test data (compressed as gzip).
+        
+    adm_cohort_path : str
+        Path to the CSV file containing patient admission cohort data.
 
-def preproc_meds(root_dir: str, module_path:str, adm_cohort_path:str) -> pd.DataFrame:
-  
+    Returns:
+    --------
+    pd.DataFrame
+        A DataFrame containing the preprocessed microbiology test data with the following columns:
+        
+        - **subject_id**: Unique identifier for the patient.
+        - **hadm_id**: Hospital admission ID, linking microbiology tests to specific hospital admissions.
+        - **charttime**: Timestamp indicating when the microbiology observation was recorded.
+        - **spec_itemid**: Identifier for the specific specimen type associated with the test.
+        - **storetime**: Timestamp indicating when the laboratory result was stored.
+        - **test_itemid**: Identifier for the specific microbiology test, which can be cross-referenced with a test items table for further details.
+        - **stay_id**: Identifier for the patient's stay in the hospital.
+        - **intime**: Timestamp of the patient's admission to the ICU, allowing for temporal analysis of events.
+        - **start_hours_from_admit**: Time elapsed from the patient's admission to the test event's charttime, represented as a timedelta.
+        - **stop_hours_from_admit**: Time elapsed from the patient's admission to the test event's storetime, represented as a timedelta. This variable can be missing.
+
+    Remarks:
+    --------
+    It is recommended to handle missing values appropriately based on the context of analysis.
+    """
+
+    print("Watch out: preprocessing microbiology data is tricky and needs to be looked at more carefully.")
+    
+    # Read admission data
+    adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates=['intime'])
+    
+    # Initialize an empty DataFrame to store the processed microbiology data
+    df_micro = pd.DataFrame()
+    
+    # Read the microbiology data in chunks
+    chunksize = 1000000  # Adjust as necessary for your memory constraints
+    for chunk in tqdm(pd.read_csv(module_path, compression='gzip', 
+                                   usecols=['subject_id', 'hadm_id', # "chartdate", 
+                                             'charttime', 'spec_itemid', # 'storedate',
+                                             'storetime', 'test_itemid'], 
+                                   parse_dates=['charttime', 'storetime'], 
+                                   chunksize=chunksize)):
+        # Merge with admission data
+        chunk_merged = chunk.merge(adm, on='hadm_id', how='inner')
+        
+        # Calculate time elapsed from admission
+        chunk_merged['start_hours_from_admit'] = chunk_merged['charttime'] - chunk_merged['intime']
+        chunk_merged['stop_hours_from_admit'] = chunk_merged['storetime'] - chunk_merged['intime']
+        
+        # Append the processed chunk to the main DataFrame
+        df_micro = pd.concat([df_micro, chunk_merged], ignore_index=True)
+
+    print("# of unique type of micro events: ", df_micro.test_itemid.nunique())
+    print("# Admissions:  ", df_micro.stay_id.nunique())
+    print("# Total rows", df_micro.shape[0])
+
+    return df_micro
+
+def preproc_meds(module_path: str, adm_cohort_path: str) -> pd.DataFrame:
+    """
+    Preprocesses medication administration records for patients in a specified cohort.
+
+    This function reads medication data and admission cohort information, merges them 
+    to correlate medication administration with patient admission details, and computes 
+    the elapsed time from admission for each medication event.
+
+    Parameters:
+    -----------
+    module_path : str
+        Path to the CSV file containing medication administration data.
+    adm_cohort_path : str
+        Path to the CSV file containing admission cohort data.
+
+    Returns:
+    --------
+    pd.DataFrame
+        A DataFrame containing preprocessed medication administration records with the following columns:
+        
+        - `subject_id`: Identifier for the patient.
+        - `stay_id`: Identifier for the patient's stay in the hospital.
+        - `starttime`: Timestamp indicating when the medication administration began.
+        - `endtime`: Timestamp indicating when the medication administration ended.
+        - `itemid`: Identifier for the specific medication administered, which can be cross-referenced with an items table for details.
+        - `amount`: Amount of medication administered.
+        - `rate`: Rate of medication administration (e.g., dosage per hour).
+            -> watch out: rate can be nan, then it's a one time med.
+        - `orderid`: Identifier for the medication order.
+        - `intime`: Timestamp of the patient's admission to the hospital.
+        - `hadm_id`: Hospital admission ID, linking records to specific hospital admissions.
+        - `start_hours_from_admit`: Time elapsed from the patient's admission to the start of medication administration, in hours.
+        - `stop_hours_from_admit`: Time elapsed from the patient's admission to the end of medication administration, in hours.
+
+    Notes:
+    ------
+    - The function drops any rows with missing values and prints the unique count of medication types,
+      the number of admissions, and the total number of rows in the resulting DataFrame for diagnostics.
+    - It is essential to ensure that the CSV files are in the expected format to avoid errors during processing.
+    """
+
     adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates = ['intime'])
     med = pd.read_csv(module_path, compression='gzip', usecols=['subject_id', 'stay_id', 'itemid', 'starttime', 'endtime','rate','amount','orderid'], parse_dates = ['starttime', 'endtime'])
     med = med.merge(adm, left_on = 'stay_id', right_on = 'stay_id', how = 'inner')
@@ -170,8 +306,51 @@ def preproc_meds(root_dir: str, module_path:str, adm_cohort_path:str) -> pd.Data
     
     return med
     
-def preproc_proc(root_dir: str, dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
-    """Function for getting hosp observations pertaining to a pickled cohort. Function is structured to save memory when reading and transforming data."""
+def preproc_proc(dataset_path: str, cohort_path: str, time_col: str, dtypes: dict, usecols: list) -> pd.DataFrame:
+    """
+    Preprocesses procedure event data for patients in a specified cohort. 
+    The function merges procedure data with the cohort information, ensuring that 
+    only relevant observations are retained, and calculates the time from patient 
+    admission to each procedure event.
+
+    Parameters:
+    -----------
+    root_dir : str
+        The root directory where the cohort file and relevant procedure event files are stored.
+    
+    dataset_path : str
+        The path to the procedure event dataset file, which contains hospital procedure observations.
+    
+    cohort_path : str
+        The path to the CSV file containing the cohort data. This file should include patient identifiers 
+        and admission timestamps to filter the relevant procedure events.
+    
+    time_col : str
+        The name of the column representing the timestamp of the procedure events (e.g., 'starttime').
+    
+    dtypes : dict
+        A dictionary specifying the data types for columns in the procedure event dataset to optimize memory usage.
+    
+    usecols : list
+        A list of columns to be read from the dataset, ensuring that only necessary data is loaded into memory.
+
+    Returns:
+    --------
+    df_cohort : pd.DataFrame
+        A DataFrame containing the preprocessed procedure events related to the specified cohort, structured as follows:
+        
+        - `stay_id`: Identifier for the patient's stay in the hospital.
+        - `starttime`: Timestamp of when the procedure event occurred.
+        - `itemid`: Identifier for the specific procedure, which can be cross-referenced with the items table for additional details.
+            -> this is the important part. There is no associated value. 
+        - `subject_id`: Identifier for the patient.
+        - `hadm_id`: Hospital admission ID, linking the procedure to the specific hospital admission.
+        - `intime`: Timestamp of the patient's admission to the hospital, allowing for temporal analysis.
+        - `outtime`: Timestamp of when the patient was discharged from the hospital.
+        - `event_time_from_admit`: The time elapsed from the patient's admission to the procedure event, facilitating 
+          analyses related to the timing of interventions and patient responses.
+    """
+
 
     def merge_module_cohort() -> pd.DataFrame:
         """Gets the initial module data with patients anchor year data and only the year of the charttime"""
@@ -200,8 +379,60 @@ def preproc_proc(root_dir: str, dataset_path: str, cohort_path:str, time_col:str
     # Only return module measurements within the observation range, sorted by subject_id
     return df_cohort
 
-def preproc_out(root_dir: str, dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
-    """Function for getting hosp observations pertaining to a pickled cohort. Function is structured to save memory when reading and transforming data."""
+def preproc_out(dataset_path: str, cohort_path: str, time_col: str, dtypes: dict, usecols: list) -> pd.DataFrame:
+    """
+    Extracts and preprocesses hospital observations related to a specified cohort from the provided dataset.
+    This function is designed to efficiently read and transform the data, optimizing memory usage.
+
+    The output DataFrame includes observations for patients within the defined cohort, with timestamps of each 
+    observation relative to the admission time. The data can be used to analyze clinical measurements, 
+    medication administration, and other relevant hospital events.
+
+    Parameters
+    ----------
+    dataset_path : str
+        Path to the CSV file containing hospital observation data, which includes relevant measurements and their timestamps.
+    
+    cohort_path : str
+        Path to the cohort file containing patient stay information, including admission and discharge times.
+
+    time_col : str
+        The name of the column in the dataset that represents the timestamp of each observation.
+
+    dtypes : dict
+        A dictionary specifying the data types for columns in the dataset to optimize memory usage during loading.
+
+    usecols : list
+        A list of columns to be read from the dataset, allowing for selective loading of relevant data.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the preprocessed hospital observations for the specified cohort. The output includes:
+        
+        - `subject_id`: Unique identifier for the patient.
+        - `hadm_id`: Hospital admission ID.
+        - `stay_id`: Identifier for the patient's stay in the hospital.
+        - `caregiver_id`: Identifier for the healthcare provider who recorded the observation.
+        - `charttime`: Timestamp of when the observation was recorded.
+        - `storetime`: Timestamp of when the observation was stored in the database.
+        - `itemid`: Identifier for the specific observation or measurement.
+        - `value`: The observed measurement or recorded value.
+        - `valueuom`: The unit of measurement for the recorded value (e.g., mL).
+        - `intime`: The timestamp of patient admission.
+        - `outtime`: The timestamp of patient discharge.
+        - `event_time_from_admit`: The time elapsed from admission to the event, calculated as the difference 
+          between the observation time and the admission time (`intime`).
+
+    Notes
+    -----
+    - Users can look up specific features and their descriptions by referencing the `itemid` in the corresponding 
+      items table to understand what type of observations are being analyzed.
+    - The function merges the observation data with the cohort information, ensuring that only events related to 
+      patients in the specified cohort are included.
+    - The resulting DataFrame is sorted by `subject_id` for consistency in analysis and interpretation.
+    """
+
 
     def merge_module_cohort() -> pd.DataFrame:
         """Gets the initial module data with patients anchor year data and only the year of the charttime"""
@@ -227,10 +458,42 @@ def preproc_out(root_dir: str, dataset_path: str, cohort_path:str, time_col:str,
     print("Total rows", df_cohort.shape[0])
 
     # Only return module measurements within the observation range, sorted by subject_id
+
     return df_cohort
 
-def preproc_chart(root_dir: str, dataset_path: str, cohort_path:str, time_col:str, dtypes: dict, usecols: list) -> pd.DataFrame:
-    """Function for getting hosp observations pertaining to a pickled cohort. Function is structured to save memory when reading and transforming data."""
+def preproc_chart(dataset_path: str, cohort_path: str, time_col: str, dtypes: dict, usecols: list) -> pd.DataFrame:
+    """
+    Preprocesses chart event data from the MIMIC-IV dataset for a specified patient cohort.
+
+    Parameters:
+    -----------
+    dataset_path : str
+        The file path to the chart events data (CSV format) from the MIMIC-IV dataset.
+    
+    cohort_path : str
+        The file path to the cohort data (pickled) containing relevant patient stay information.
+    
+    time_col : str
+        The name of the column representing the time of the chart event.
+    
+    dtypes : dict
+        A dictionary specifying the data types for the columns to be read in the dataset.
+    
+    usecols : list
+        A list of columns to be included when reading the dataset to optimize memory usage.
+
+    Returns:
+    --------
+    pd.DataFrame
+        A DataFrame containing the preprocessed chart event data for patients in the specified cohort.
+        Columns include:
+        - `stay_id`: Identifier for the patient's stay in the hospital.
+        - `itemid`: Identifier for specific chart observations, which can be cross-referenced with the items table for further detail.
+        - `valuenum`: Numeric value of the observation (e.g., vital signs, lab results).
+        - `valueuom`: Units of measurement for the `valuenum` (e.g., mmHg, bpm).
+        - `event_time_from_admit`: The time elapsed from the patient's admission to the observation event, facilitating 
+          analyses related to the timing of care and interventions.
+    """
     
     # Only consider values in our cohort
     cohort = pd.read_csv(cohort_path, compression='gzip', parse_dates = ['intime'])
@@ -277,8 +540,47 @@ def preproc_chart(root_dir: str, dataset_path: str, cohort_path:str, time_col:st
     # Only return module measurements within the observation range, sorted by subject_id
     return df_cohort
 
-def preproc_icd_module(root_dir: str, module_path:str, adm_cohort_path:str, icd_map_path=None, map_code_colname=None, only_icd10=True) -> pd.DataFrame:
-    """Takes an module dataset with ICD codes and puts it in long_format, optionally mapping ICD-codes by a mapping table path"""    
+def preproc_icd_module( module_path:str, adm_cohort_path:str, icd_map_path=None, map_code_colname=None, only_icd10=True) -> pd.DataFrame:
+    """
+    Preprocesses a module dataset containing ICD (International Classification of Diseases) codes by merging it with an admission cohort and optionally mapping ICD-9 codes to ICD-10 codes using a mapping table.
+    Note that we could additionally keep the order of diagnoses, but not the exact timepoint
+    
+    This function handles the following tasks:
+    - Merges the module dataset with an admission cohort based on hospital admission IDs (`hadm_id`).
+    - Optionally maps ICD-9 codes to ICD-10 codes using a provided mapping table.
+    - Converts ICD-9 codes to their root ICD-10 codes and adds new columns with these conversions.
+    - Filters the final output to only contain ICD-10 codes if specified.
+
+    Parameters
+    ----------
+    root_dir : str
+        Root directory where the datasets are stored.
+    module_path : str
+        Path to the CSV file containing the module data with ICD codes (ICD-9 and/or ICD-10).
+    adm_cohort_path : str
+        Path to the admission cohort file containing the hospital admission IDs (`hadm_id`), stay IDs (`stay_id`), and labels.
+    icd_map_path : str, optional
+        Path to the mapping file that maps ICD-9 codes to ICD-10 codes. If None, no mapping is applied.
+    map_code_colname : str, optional
+        The column name in the mapping file that contains the ICD-9 codes to be mapped.
+    only_icd10 : bool, optional, default=True
+        Whether to filter the final dataset to only include ICD-10 codes.
+
+    Returns
+    -------
+    pd.DataFrame
+        The preprocessed module dataset, with additional columns for converted ICD codes if a mapping is provided.
+        It contains:
+        - **hadm_id**: Unique identifier for each hospital admission.
+        - **icd_code**: The original ICD code (ICD-9 or ICD-10) from the module dataset.
+        - **root_icd10_convert**: The ICD-10 code obtained from the mapping of ICD-9 codes, or the original ICD-10 code if no mapping is applied.
+        - **root**: The root ICD-10 code derived from `root_icd10_convert`, which consists of the first three characters of the ICD-10 code.
+
+    Notes
+    -----
+    - The mapping table, if provided, should include at least two columns: one for the ICD-9 codes and one for the ICD-10 codes.
+    - If `only_icd10=True`, the output DataFrame will contain a root-level ICD-10 code column.
+    """
     
     def get_module_cohort(module_path:str, cohort_path:str):
         module = pd.read_csv(module_path, compression='gzip', header=0)

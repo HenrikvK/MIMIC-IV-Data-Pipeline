@@ -210,34 +210,96 @@ class Generator():
         self.lab=lab
 
     def generate_micro(self):
-        meds=pd.read_csv("./data/features/preproc_microbiologyevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
-        meds[['start_days', 'dummy','start_hours']] = meds['start_hours_from_admit'].str.split(' ', -1, expand=True)
-        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
-        meds['start_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
-        meds[['start_days', 'dummy','start_hours']] = meds['stop_hours_from_admit'].str.split(' ', -1, expand=True)
-        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
-        meds['stop_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
-        meds=meds.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
+        micro=pd.read_csv("./data/features/preproc_microbiologyevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
+        micro[['start_days', 'dummy','start_hours']] = micro['start_hours_from_admit'].str.split(' ', -1, expand=True)
+        micro[['start_hours','min','sec']] = micro['start_hours'].str.split(':', -1, expand=True)
+        micro['start_time']=pd.to_numeric(micro['start_days'])*24+pd.to_numeric(micro['start_hours'])
+        micro[['start_days', 'dummy','start_hours']] = micro['stop_hours_from_admit'].str.split(' ', -1, expand=True)
+        micro[['start_hours','min','sec']] = micro['start_hours'].str.split(':', -1, expand=True)
+        micro['stop_time']=pd.to_numeric(micro['start_days'])*24+pd.to_numeric(micro['start_hours'])
+        micro=micro.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
         #####Sanity check
-        meds['sanity']=meds['stop_time']-meds['start_time']
-        meds=meds[meds['sanity']>0]
-        del meds['sanity']
+        micro['sanity']=micro['stop_time']-micro['start_time']
+        micro=micro[micro['sanity']>0]
+        del micro['sanity']
         #####Select hadm_id as in main file
-        meds=meds[meds['stay_id'].isin(self.data['stay_id'])]
-        meds=pd.merge(meds,self.data[['stay_id','los']],on='stay_id',how='left')
+        micro=micro[micro['stay_id'].isin(self.data['stay_id'])]
+        micro=pd.merge(micro,self.data[['stay_id','los']],on='stay_id',how='left')
 
         #####Remove where start time is after end of visit
-        meds['sanity']=meds['los']-meds['start_time']
-        meds=meds[meds['sanity']>0]
-        del meds['sanity']
+        micro['sanity']=micro['los']-micro['start_time']
+        micro=micro[micro['sanity']>0]
+        del micro['sanity']
         ####Any stop_time after end of visit is set at end of visit
-        meds.loc[meds['stop_time'] > meds['los'],'stop_time']=meds.loc[meds['stop_time'] > meds['los'],'los']
-        del meds['los']
+        micro.loc[micro['stop_time'] > micro['los'],'stop_time']=micro.loc[micro['stop_time'] > micro['los'],'los']
+        del micro['los']
         
         #meds['rate']=meds['rate'].apply(pd.to_numeric, errors='coerce')
         #meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
         
-        self.micro= meds
+        self.micro= micro
+
+
+    # #MANUAL INPUT
+    # def generate_lab(self):
+    #     lab=pd.read_csv("./data/features/preproc_labevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
+    #     lab[['start_days', 'dummy','start_hours']] = lab['start_hours_from_admit'].str.split(' ', -1, expand=True)
+    #     lab[['start_hours','min','sec']] = lab['start_hours'].str.split(':', -1, expand=True)
+    #     lab['start_time']=pd.to_numeric(lab['start_days'])*24+pd.to_numeric(lab['start_hours'])
+    #     lab[['start_days', 'dummy','start_hours']] = lab['stop_hours_from_admit'].str.split(' ', -1, expand=True)
+    #     lab[['start_hours','min','sec']] = lab['start_hours'].str.split(':', -1, expand=True)
+    #     lab['stop_time']=pd.to_numeric(lab['start_days'])*24+pd.to_numeric(lab['start_hours'])
+    #     lab=lab.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
+    #     #####Sanity check
+    #     lab['sanity']=lab['stop_time']-lab['start_time']
+    #     lab=lab[lab['sanity']>0]
+    #     del lab['sanity']
+    #     #####Select hadm_id as in main file
+    #     lab=lab[lab['stay_id'].isin(self.data['stay_id'])]
+    #     lab=pd.merge(lab,self.data[['stay_id','los']],on='stay_id',how='left')
+
+    #     #####Remove where start time is after end of visit
+    #     lab['sanity']=lab['los']-lab['start_time']
+    #     lab=lab[lab['sanity']>0]
+    #     del lab['sanity']
+    #     ####Any stop_time after end of visit is set at end of visit
+    #     lab.loc[lab['stop_time'] > lab['los'],'stop_time']=lab.loc[lab['stop_time'] > lab['los'],'los']
+    #     del lab['los']
+        
+    #     #meds['rate']=meds['rate'].apply(pd.to_numeric, errors='coerce')
+    #     #meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
+        
+    #     self.lab=lab
+
+    # def generate_micro(self):
+    #     meds=pd.read_csv("./data/features/preproc_microbiologyevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
+    #     meds[['start_days', 'dummy','start_hours']] = meds['start_hours_from_admit'].str.split(' ', -1, expand=True)
+    #     meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
+    #     meds['start_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
+    #     meds[['start_days', 'dummy','start_hours']] = meds['stop_hours_from_admit'].str.split(' ', -1, expand=True)
+    #     meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
+    #     meds['stop_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
+    #     meds=meds.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
+    #     #####Sanity check
+    #     meds['sanity']=meds['stop_time']-meds['start_time']
+    #     meds=meds[meds['sanity']>0]
+    #     del meds['sanity']
+    #     #####Select hadm_id as in main file
+    #     meds=meds[meds['stay_id'].isin(self.data['stay_id'])]
+    #     meds=pd.merge(meds,self.data[['stay_id','los']],on='stay_id',how='left')
+
+    #     #####Remove where start time is after end of visit
+    #     meds['sanity']=meds['los']-meds['start_time']
+    #     meds=meds[meds['sanity']>0]
+    #     del meds['sanity']
+    #     ####Any stop_time after end of visit is set at end of visit
+    #     meds.loc[meds['stop_time'] > meds['los'],'stop_time']=meds.loc[meds['stop_time'] > meds['los'],'los']
+    #     del meds['los']
+        
+    #     #meds['rate']=meds['rate'].apply(pd.to_numeric, errors='coerce')
+    #     #meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
+        
+    #     self.micro= meds
     
     def mortality_length(self,include_time,predW):
         print("include_time",include_time)
@@ -990,15 +1052,27 @@ class Generator():
 
         if(self.feat_lab):
             with open("./data/dict/labVocab", 'wb') as fp:
-                pickle.dump(list(meds['itemid'].unique()), fp)
-            self.lab_vocab = meds['itemid'].nunique()
+                pickle.dump(list(lab['itemid'].unique()), fp)
+            self.lab_vocab = lab['itemid'].nunique()
             metaDic['Lab']=self.lab_per_adm
 
         if(self.feat_micro):
             with open("./data/dict/microVocab", 'wb') as fp:
                 pickle.dump(list(micro['test_itemid'].unique()), fp)
-            self.micro_vocab = meds['test_itemid'].nunique()
+            self.micro_vocab = micro['test_itemid'].nunique()
             metaDic['Micro']=self.micro_per_adm
+
+        # if(self.feat_lab):
+        #     with open("./data/dict/labVocab", 'wb') as fp:
+        #         pickle.dump(list(meds['itemid'].unique()), fp)
+        #     self.lab_vocab = meds['itemid'].nunique()
+        #     metaDic['Lab']=self.lab_per_adm
+
+        # if(self.feat_micro):
+        #     with open("./data/dict/microVocab", 'wb') as fp:
+        #         pickle.dump(list(micro['test_itemid'].unique()), fp)
+        #     self.micro_vocab = meds['test_itemid'].nunique()
+        #     metaDic['Micro']=self.micro_per_adm
             
         if(self.feat_out):
             with open("./data/dict/outVocab", 'wb') as fp:

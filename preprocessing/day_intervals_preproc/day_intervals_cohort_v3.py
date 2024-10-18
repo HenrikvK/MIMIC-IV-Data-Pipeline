@@ -147,7 +147,7 @@ def partition_by_readmit(df:pd.DataFrame, gap:datetime.timedelta, group_col:str,
     #grouped= df[[group_col, visit_col, admit_col, disch_col, valid_col]].sort_values(by=[group_col, admit_col]).groupby(group_col)
     grouped= df.sort_values(by=[group_col, admit_col]).groupby(group_col)
     for subject, group in tqdm(grouped):
-        max_year = group.max()[disch_col].year
+        # max_year = group.max()[disch_col].year
 
         if group.shape[0] <= 1:
             #ctrl, invalid = validate_row(group.iloc[0], ctrl, invalid, max_year, disch_col, valid_col, gap)   # A group with 1 row has no readmission; goes to ctrl

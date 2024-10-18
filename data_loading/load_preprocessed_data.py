@@ -15,7 +15,9 @@ if not os.path.exists("./data/csv"):
     os.makedirs("./data/csv")
     
 class DataLoader():
-    def __init__(self,root_dir, cohort_output,if_mort,if_admn,if_los,feat_cond,feat_proc,feat_out,feat_chart,feat_med,feat_lab,feat_micro,impute,include_time=24,bucket=1,predW=72):
+    def __init__(self, root_dir: str, 
+                cohort_output: str, if_mort : bool, if_admn: bool, if_los: bool,
+                feat_cond: bool,feat_proc: bool,feat_out: bool,feat_chart: bool,feat_med: bool,feat_lab: bool,feat_micro: bool,impute,include_time=24,bucket=1,predW=72):
         self.feat_cond,self.feat_proc,self.feat_out,self.feat_chart,self.feat_med, self.feat_lab, self.feat_micro = feat_cond,feat_proc,feat_out,feat_chart,feat_med,feat_lab,feat_micro
         self.cohort_output=cohort_output
         self.root_dir   = root_dir 
@@ -51,13 +53,20 @@ class DataLoader():
 
         dataset = {}
         dataset['data']     = self.data
-        dataset['cond'],dataset['cond_per_adm']  = self.cond, self.cond_per_adm
-        dataset['meds']     = self.meds
-        dataset['proc']     = self.proc
-        dataset['out']      = self.out
-        dataset['chart']    = self.chart
-        dataset['lab']    = self.lab
-        dataset['micro']    = self.micro
+        if self.feat_cond:
+            dataset['cond'],dataset['cond_per_adm']  = self.cond, self.cond_per_adm
+        if self.feat_med:
+            dataset['meds']     = self.meds
+        if self.feat_proc:
+            dataset['proc']     = self.proc
+        if self.feat_out:
+            dataset['out']      = self.out
+        if self.feat_chart:
+            dataset['chart']    = self.chart
+        if self.feat_lab:
+            dataset['lab']    = self.lab
+        if self.feat_micro:
+            dataset['micro']    = self.micro
 
 
         
@@ -93,7 +102,7 @@ class DataLoader():
           #MANUAL INPUT
         if(self.feat_lab):
             print("[ ======READING LAB EVENTS ]")
-            self.generate_lab()
+            self.lab = self.generate_lab()
         if(self.feat_micro):
             print("[ ======READING MICROBIOLOGY EVENTS ]")
             self.generate_micro()
@@ -219,35 +228,55 @@ class DataLoader():
         
         self.meds=meds
 
-    def generate_lab(self):
-        meds=pd.read_csv("./data/features/preproc_labevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
-        meds[['start_days', 'dummy','start_hours']] = meds['start_hours_from_admit'].str.split(' ', -1, expand=True)
-        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
-        meds['start_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
-        meds[['start_days', 'dummy','start_hours']] = meds['stop_hours_from_admit'].str.split(' ', -1, expand=True)
-        meds[['start_hours','min','sec']] = meds['start_hours'].str.split(':', -1, expand=True)
-        meds['stop_time']=pd.to_numeric(meds['start_days'])*24+pd.to_numeric(meds['start_hours'])
-        meds=meds.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
+    def generate_lab(self, target_path: str = "./data/features") -> pd.DataFrame:
+        """
+        Generate a DataFrame containing lab event data processed from the ICU dataset.
+
+        This function reads preprocessed lab event data, calculates start and stop times 
+        in relation to the admission stay, and performs various sanity checks to ensure 
+        data integrity. The processed lab data is stored in the `self.lab` attribute.
+
+        Parameters:
+        - target_path (str): The directory path where the preprocessed lab event data is stored. 
+        Default is './data/features'.
+
+        Returns:
+        - pd.DataFrame: A DataFrame containing the processed lab event data.
+
+        Notes:
+        - The function assumes that the 'chart_hours_from_admit' and 'store_hours_from_admit' 
+        columns are present in the input DataFrame and are in a format that can be split 
+        into days and hours.
+        - Sanity checks ensure that start times are before stop times and that all events 
+        fall within the length of stay for the corresponding patient.
+        """
+        labs = pd.read_csv(f"{target_path}/preproc_labevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
+        labs[['start_days', 'dummy','start_hours']] = labs['chart_hours_from_admit'].str.split(' ', -1, expand=True)
+        labs[['start_hours','min','sec']] = labs['start_hours'].str.split(':', -1, expand=True)
+        labs['start_time']=pd.to_numeric(labs['start_days'])*24+pd.to_numeric(labs['start_hours'])
+        labs[['start_days', 'dummy','start_hours']] = labs['store_hours_from_admit'].str.split(' ', -1, expand=True)
+        labs[['start_hours','min','sec']] = labs['start_hours'].str.split(':', -1, expand=True)
+        labs['stop_time']=pd.to_numeric(labs['start_days'])*24+pd.to_numeric(labs['start_hours'])
+        labs=labs.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
         #####Sanity check
-        meds['sanity']=meds['stop_time']-meds['start_time']
-        meds=meds[meds['sanity']>0]
-        del meds['sanity']
+        labs['sanity']=labs['stop_time']-labs['start_time']
+        labs=labs[labs['sanity']>0]
+        del labs['sanity']
         #####Select hadm_id as in main file
-        meds=meds[meds['stay_id'].isin(self.data['stay_id'])]
-        meds=pd.merge(meds,self.data[['stay_id','los']],on='stay_id',how='left')
+        labs=labs[labs['stay_id'].isin(self.data['stay_id'])]
+        labs=pd.merge(labs,self.data[['stay_id','los']],on='stay_id',how='left')
 
         #####Remove where start time is after end of visit
-        meds['sanity']=meds['los']-meds['start_time']
-        meds=meds[meds['sanity']>0]
-        del meds['sanity']
+        labs['sanity']=labs['los']-labs['start_time']
+        labs=labs[labs['sanity']>0]
+        del labs['sanity']
         ####Any stop_time after end of visit is set at end of visit
-        meds.loc[meds['stop_time'] > meds['los'],'stop_time']=meds.loc[meds['stop_time'] > meds['los'],'los']
-        del meds['los']
+        labs.loc[labs['stop_time'] > labs['los'],'stop_time']=labs.loc[labs['stop_time'] > labs['los'],'los']
+        del labs['los']
         
-        #meds['rate']=meds['rate'].apply(pd.to_numeric, errors='coerce')
-        #meds['amount']=meds['amount'].apply(pd.to_numeric, errors='coerce')
-        
-        self.lab=meds
+        self.lab=labs
+
+        return self.lab
 
     def generate_micro(self):
         meds=pd.read_csv("./data/features/preproc_microbiologyevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
