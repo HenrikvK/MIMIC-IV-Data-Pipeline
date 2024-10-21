@@ -14,15 +14,25 @@ if not os.path.exists("./data/cohort"):
     os.makedirs("./data/cohort")
     
 def get_visit_pts(mimic4_path:str, group_col:str, visit_col:str, admit_col:str, disch_col:str, adm_visit_col:str, use_mort:bool, use_los:bool, los:int, use_admn:bool, disease_label:str,use_ICU:bool):
-    """Combines the MIMIC-IV core/patients table information with either the icu/icustays or core/admissions data.
+    """
+    Combines MIMIC-IV patient data with ICU stay or hospital admission records based on the specified input parameters.
 
     Parameters:
-    mimic4_path: path to mimic-iv folder containing MIMIC-IV data
-    group_col: patient identifier to group patients (normally subject_id)
-    visit_col: visit identifier for individual patient visits (normally hadm_id or stay_id)
-    admit_col: column for visit start date information (normally admittime or intime)
-    disch_col: column for visit end date information (normally dischtime or outtime)
-    use_ICU: describes whether to speficially look at ICU visits in icu/icustays OR look at general admissions from core/admissions
+    mimic4_path (str): Path to the folder containing MIMIC-IV data files.
+    group_col (str): The column representing patient identifiers (typically 'subject_id').
+    visit_col (str): The column representing visit identifiers (e.g., 'hadm_id' or 'stay_id').
+    admit_col (str): The column representing the start date/time of a visit (e.g., 'admittime' or 'intime').
+    disch_col (str): The column representing the end date/time of a visit (e.g., 'dischtime' or 'outtime').
+    adm_visit_col (str): The column used to join visits (specific to ICU admissions).
+    use_mort (bool): If True, mortality data will be considered when labeling visits.
+    use_los (bool): If True, length-of-stay data will be used for labeling visits.
+    los (int): Length of stay (LOS) threshold used when applying LOS labels.
+    use_admn (bool): If True, readmission criteria will be used to filter out non-relevant admissions.
+    disease_label (str): Filter to include only patients with the specified diagnosis.
+    use_ICU (bool): If True, ICU stays (from 'icustays') will be used, otherwise general admissions will be used.
+
+    Returns:
+    pd.DataFrame: A merged DataFrame with patient demographic data and visit-specific information.
     """
 
     visit = None # df containing visit information depending on using ICU or not
@@ -112,7 +122,53 @@ def validate_row(row, ctrl, invalid, max_year, disch_col, valid_col, gap):
 
 
 def partition_by_los(df:pd.DataFrame, los:int, group_col:str, visit_col:str, admit_col:str, disch_col:str, valid_col:str):
+    """
+    Partition a DataFrame based on length of stay (LOS) and generate labels.
+
+    This function partitions the input DataFrame into two cohorts based on the given LOS threshold:
+    - Positive cohort: patients with a LOS greater than the specified threshold.
+    - Negative cohort: patients with a LOS less than or equal to the threshold.
     
+    The function also identifies invalid records where admission, discharge, or LOS information is missing.
+    Labels are assigned as follows:
+    - 1 for patients in the positive cohort (LOS > threshold).
+    - 0 for patients in the negative cohort (LOS <= threshold).
+    
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Input DataFrame containing patient information, including admission and discharge times.
+    los : int
+        The threshold for length of stay (LOS) to partition the data.
+    group_col : str
+        Column name representing the group or patient identifier.
+    visit_col : str
+        Column name representing the visit or encounter identifier (currently unused).
+    admit_col : str
+        Column name representing the admission time.
+    disch_col : str
+        Column name representing the discharge time.
+    valid_col : str
+        Column name representing whether a visit is valid (currently unused).
+
+    Returns:
+    --------
+    cohort : pd.DataFrame
+        The partitioned DataFrame, where each row has a label based on the LOS threshold.
+        Contains both positive (LOS > threshold) and negative (LOS <= threshold) cohorts.
+    invalid : pd.DataFrame
+        The DataFrame containing rows with missing admission, discharge, or LOS data.
+    
+    Notes:
+    ------
+    - The 'los' column is expected to be in the input DataFrame.
+    - Missing values in the partitioned DataFrame are filled with 0.
+    - The function prints a completion message once the LOS labeling is finished.
+    
+    Example:
+    --------
+    cohort, invalid = partition_by_los(df, 3, 'patient_id', 'visit_id', 'admit_time', 'disch_time', 'valid_visit')
+    """
     invalid = df.loc[(df[admit_col].isna()) | (df[disch_col].isna()) | (df['los'].isna())]
     cohort = df.loc[(~df[admit_col].isna()) & (~df[disch_col].isna()) & (~df['los'].isna())]
     
@@ -256,7 +312,8 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
     cohort_output: name of labelled cohort output file
     summary_output: name of summary output file
     use_ICU: state whether to use ICU patient data or not
-    label: Can either be '{day} day Readmission' or 'Mortality', decides what binary data label signifies"""
+    label: Can either be '{day} day Readmission' or 'Mortality', decides what binary data label signifies
+    """
     print("===========MIMIC-IV v3.0============")
     if not cohort_output:
         cohort_output="cohort_" + use_ICU.lower() + "_" + label.lower().replace(" ", "_") + "_" + str(time) + "_" + disease_label
@@ -266,8 +323,10 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
     if icd_code=="No Disease Filter":
         if len(disease_label):
             print(f"EXTRACTING FOR: | {use_ICU.upper()} | {label.upper()} DUE TO {disease_label.upper()} | {str(time)} | ")
-        else:
+        elif len(label)>0:
             print(f"EXTRACTING FOR: | {use_ICU.upper()} | {label.upper()} | {str(time)} |")
+        else:
+            print(f"EXTRACTING FOR: | {use_ICU.upper()} |")
     else:
         if len(disease_label):
             print(f"EXTRACTING FOR: | {use_ICU.upper()} | {label.upper()} DUE TO {disease_label.upper()} | ADMITTED DUE TO {icd_code.upper()} | {str(time)} |")
@@ -333,6 +392,10 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
         cohort, invalid = get_case_ctrls(pts, interval, group_col, visit_col, admit_col, disch_col,'min_valid_year', death_col, use_mort=False,use_admn=True,use_los=False)
     elif use_los:
         cohort, invalid = get_case_ctrls(pts, los, group_col, visit_col, admit_col, disch_col,'min_valid_year', death_col, use_mort=False,use_admn=False,use_los=True)
+    else: # no specific label -> do nothing
+        cohort, invalid = pts,  None
+        cols.remove('label')
+
     #print(cohort.head())
     
     if use_ICU:
@@ -361,13 +424,20 @@ def extract_data(use_ICU:str, label:str, time:int, icd_code:str, root_dir, disea
     #cohort[cols].to_csv(root_dir+"/data/cohort/"+cohort_output+".csv.gz", index=False, compression='gzip')
     print("[ COHORT SUCCESSFULLY SAVED ]")
 
-    summary = "\n".join([
-        f"{label} FOR {ICU} DATA",
-        f"# Admission Records: {cohort.shape[0]}",
-        f"# Patients: {cohort[group_col].nunique()}",
-        f"# Positive cases: {cohort[cohort['label']==1].shape[0]}",
-        f"# Negative cases: {cohort[cohort['label']==0].shape[0]}"
-    ])
+    if len(label)>0:
+        summary = "\n".join([
+            f"{label} FOR {ICU} DATA",
+            f"# Admission Records: {cohort.shape[0]}",
+            f"# Patients: {cohort[group_col].nunique()}",
+            f"# Positive cases: {cohort[cohort['label']==1].shape[0]}",
+            f"# Negative cases: {cohort[cohort['label']==0].shape[0]}"
+        ])
+    else:
+        summary = "\n".join([
+            f"{ICU} DATA",
+            f"# Admission Records: {cohort.shape[0]}",
+            f"# Patients: {cohort[group_col].nunique()}",
+        ])
 
     # save basic summary of data
     with open(f"./data/cohort/{summary_output}.txt", "w") as f:

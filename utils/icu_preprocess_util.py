@@ -153,6 +153,10 @@ def preproc_lab(module_path: str, adm_cohort_path: str) -> pd.DataFrame:
     # Initialize an empty DataFrame to store the processed lab data
     df_lab = pd.DataFrame()
     
+    total_admissions_ids_in_module = set()
+    total_admissions_ids_in_cohort = set()
+    total_matched_admissions_ids = set()
+
     # Read the lab events data in chunks
     chunksize = 1000000  # Adjust as necessary for your memory constraints
     for chunk in tqdm(pd.read_csv(module_path, compression='gzip', 
@@ -164,6 +168,12 @@ def preproc_lab(module_path: str, adm_cohort_path: str) -> pd.DataFrame:
                                    chunksize=chunksize)):
         # Merge with admission data
         chunk_merged = chunk.merge(adm, on='hadm_id', how='inner')
+
+        # Track stay_id mismatches
+        total_admissions_ids_in_module.update(chunk['hadm_id'].unique())
+        total_admissions_ids_in_cohort.update(adm['hadm_id'].unique())
+        total_matched_admissions_ids.update(chunk_merged['hadm_id'].unique())
+
         
         # Calculate time elapsed from admission
         chunk_merged['chart_hours_from_admit'] = chunk_merged['charttime'] - chunk_merged['intime']
@@ -171,6 +181,13 @@ def preproc_lab(module_path: str, adm_cohort_path: str) -> pd.DataFrame:
         
         # Append the processed chunk to the main DataFrame
         df_lab = pd.concat([df_lab, chunk_merged], ignore_index=True)
+
+    stays_in_lab_not_in_cohort = total_admissions_ids_in_module - total_matched_admissions_ids
+    stays_in_cohort_not_in_lab = total_admissions_ids_in_cohort - total_matched_admissions_ids
+    print(f"[RESULTS] Admissions with lab info not in cohort: {len(stays_in_lab_not_in_cohort)}")
+    print(f"[RESULTS] Admissions in cohort without lab info: {len(stays_in_cohort_not_in_lab)}")
+
+
 
     print("# of unique type of lab events: ", df_lab.itemid.nunique())
     print("# Admissions:  ", df_lab.stay_id.nunique())
@@ -226,6 +243,10 @@ def preproc_micro( module_path:str, adm_cohort_path:str) -> pd.DataFrame:
     # Initialize an empty DataFrame to store the processed microbiology data
     df_micro = pd.DataFrame()
     
+    total_stay_ids_in_module = set()
+    total_stay_ids_in_cohort = set()
+    total_matched_stay_ids = set()
+
     # Read the microbiology data in chunks
     chunksize = 1000000  # Adjust as necessary for your memory constraints
     for chunk in tqdm(pd.read_csv(module_path, compression='gzip', 
@@ -237,12 +258,23 @@ def preproc_micro( module_path:str, adm_cohort_path:str) -> pd.DataFrame:
         # Merge with admission data
         chunk_merged = chunk.merge(adm, on='hadm_id', how='inner')
         
+        # Track stay_id mismatches
+        total_stay_ids_in_module.update(chunk['stay_id'].unique())
+        total_stay_ids_in_cohort.update(adm['stay_id'].unique())
+        total_matched_stay_ids.update(chunk_merged['stay_id'].unique())
+
         # Calculate time elapsed from admission
         chunk_merged['start_hours_from_admit'] = chunk_merged['charttime'] - chunk_merged['intime']
         chunk_merged['stop_hours_from_admit'] = chunk_merged['storetime'] - chunk_merged['intime']
         
         # Append the processed chunk to the main DataFrame
         df_micro = pd.concat([df_micro, chunk_merged], ignore_index=True)
+
+    stays_in_micro_not_in_cohort = total_stay_ids_in_module - total_matched_stay_ids
+    stays_in_cohort_not_in_micro = total_stay_ids_in_cohort - total_matched_stay_ids
+    print(f"[RESULTS] Stays with micro info not in cohort: {len(stays_in_micro_not_in_cohort)}")
+    print(f"[RESULTS] Stays in cohort without micro info: {len(stays_in_cohort_not_in_micro)}")
+
 
     print("# of unique type of micro events: ", df_micro.test_itemid.nunique())
     print("# Admissions:  ", df_micro.stay_id.nunique())
@@ -294,6 +326,19 @@ def preproc_meds(module_path: str, adm_cohort_path: str) -> pd.DataFrame:
     adm = pd.read_csv(adm_cohort_path, usecols=['hadm_id', 'stay_id', 'intime'], parse_dates = ['intime'])
     med = pd.read_csv(module_path, compression='gzip', usecols=['subject_id', 'stay_id', 'itemid', 'starttime', 'endtime','rate','amount','orderid'], parse_dates = ['starttime', 'endtime'])
     med = med.merge(adm, left_on = 'stay_id', right_on = 'stay_id', how = 'inner')
+
+    # Merge module (med) and cohort (adm) on 'stay_id'
+    med_merged = med.merge(adm, left_on='stay_id', right_on='stay_id', how='inner')
+
+    # # Track unique stay IDs before and after merging
+    n_stays_in_med = med['stay_id'].nunique()
+    n_stays_in_adm = adm['stay_id'].nunique()
+    n_stays_matched = med_merged['stay_id'].nunique()
+
+    # Print unmatched statistics
+    print(f"[RESULTS] Stays with medication data not in cohort: {n_stays_in_med - n_stays_matched}")
+    print(f"[RESULTS] Stays in cohort without medications: {n_stays_in_adm - n_stays_matched}")
+
     med['start_hours_from_admit'] = med['starttime'] - med['intime']
     med['stop_hours_from_admit'] = med['endtime'] - med['intime']
     
@@ -353,19 +398,51 @@ def preproc_proc(dataset_path: str, cohort_path: str, time_col: str, dtypes: dic
 
 
     def merge_module_cohort() -> pd.DataFrame:
-        """Gets the initial module data with patients anchor year data and only the year of the charttime"""
-        
-        # read module w/ custom params
-        module = pd.read_csv(dataset_path, compression='gzip', usecols=usecols, dtype=dtypes, parse_dates=[time_col]).drop_duplicates()
-        #print(module.head())
-        # Only consider values in our cohort
-        cohort = pd.read_csv(cohort_path, compression='gzip', parse_dates = ['intime'])
-        
-        #print(module.head())
-        #print(cohort.head())
+        """
+        Merges module data with patient cohort data based on 'stay_id', and prints statistics on
+        the number of stays matched between the module and cohort datasets. 
 
-        # merge module and cohort
-        return module.merge(cohort[['subject_id','hadm_id','stay_id', 'intime','outtime']], how='inner', left_on='stay_id', right_on='stay_id')
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame that contains the merged module and cohort data, including 'subject_id',
+            'hadm_id', 'stay_id', 'intime', and 'outtime'. The merge is performed on 'stay_id',
+            retaining only matching rows (inner join).
+
+        Notes
+        -----
+        - After merging, the function prints the number of unmatched stays in both the module
+        and cohort datasets.
+        - Only rows with matching 'stay_id' values are kept (inner join).
+        """
+        
+        # Read module data with custom params
+        module = pd.read_csv(dataset_path, compression='gzip', usecols=usecols, dtype=dtypes, parse_dates=[time_col]).drop_duplicates()
+        
+        # Read cohort data
+        cohort = pd.read_csv(cohort_path, compression='gzip', parse_dates=['intime'])
+        
+        # Merge module and cohort on 'stay_id'
+        module_merged = module.merge(cohort[['subject_id', 'hadm_id', 'stay_id', 'intime', 'outtime']], 
+                                    how='inner', 
+                                    left_on='stay_id', 
+                                    right_on='stay_id')
+
+        # Track unique stay IDs before and after merging
+        n_stays_in_module = module['stay_id'].nunique()
+        n_stays_in_cohort = cohort['stay_id'].nunique()
+        n_stays_matched = module_merged['stay_id'].nunique()
+
+        # Print unmatched statistics
+        print(f"[RESULTS] Stays with proc not in cohort: {n_stays_in_module - n_stays_matched}")
+        print(f"[RESULTS] Stays in cohort without proc info: {n_stays_in_cohort - n_stays_matched}")
+        
+        return module_merged
+
 
     df_cohort = merge_module_cohort()
     df_cohort['event_time_from_admit'] = df_cohort[time_col] - df_cohort['intime']
@@ -435,8 +512,29 @@ def preproc_out(dataset_path: str, cohort_path: str, time_col: str, dtypes: dict
 
 
     def merge_module_cohort() -> pd.DataFrame:
-        """Gets the initial module data with patients anchor year data and only the year of the charttime"""
-        
+        """
+        Merges module data with patient cohort data based on 'stay_id', including tracking
+        of matching statistics for admissions and patients. The function also calculates 
+        event time from admission for each row in the merged data.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame that contains the merged module and cohort data, with an additional column 
+            'event_time_from_admit', which represents the time difference between the event and 
+            admission time.
+
+        Notes
+        -----
+        - Only rows that have matching 'stay_id' values in both datasets will be retained (inner join).
+        - After merging, the function calculates the 'event_time_from_admit' for each row as the 
+        difference between the event timestamp and the admission time.
+        - Any rows with missing values after this step are dropped from the final DataFrame.
+        """
         # read module w/ custom params
         module = pd.read_csv(dataset_path, compression='gzip', usecols=usecols, dtype=dtypes, parse_dates=[time_col]).drop_duplicates()
         #print(module.head())
@@ -446,12 +544,21 @@ def preproc_out(dataset_path: str, cohort_path: str, time_col: str, dtypes: dict
         #print(module.head())
         #print(cohort.head())
 
-        # merge module and cohort
-        return module.merge(cohort[['stay_id', 'intime','outtime']], how='inner', left_on='stay_id', right_on='stay_id')
+        # Merge module and cohort on 'stay_id'
+        module_merged = module.merge(cohort[['stay_id', 'intime', 'outtime']], how='inner', left_on='stay_id', right_on='stay_id')
+
+        # Track the number of unique admissions and patients before and after merging
+        n_stays_with_proc = module['stay_id'].nunique()
+        n_stays_in_cohort = cohort['stay_id'].nunique()
+        n_stays_matched = module_merged['stay_id'].nunique()
+        print(f"[RESULTS] Stays with output info not in cohort: {n_stays_with_proc - n_stays_matched}")
+        print(f"[RESULTS] Stays in cohort without output info: {n_stays_with_proc - n_stays_matched}")
+
+        return module_merged
 
     df_cohort = merge_module_cohort()
     df_cohort['event_time_from_admit'] = df_cohort[time_col] - df_cohort['intime']
-    df_cohort=df_cohort.dropna()
+    # df_cohort=df_cohort.dropna()
     # Print unique counts and value_counts
     print("# Unique Events:  ", df_cohort.itemid.nunique())
     print("# Admissions:  ", df_cohort.stay_id.nunique())
@@ -505,14 +612,34 @@ def preproc_chart(dataset_path: str, cohort_path: str, time_col: str, dtypes: di
     nstay=[]
     nrows=0
 
+    # Initialize variables to track dropped rows
+    total_dropped_rows = 0
+    total_rows = 0
+    total_stay_ids_in_module = set()
+    total_stay_ids_in_cohort = set()
+    total_matched_stay_ids = set()
+
     for chunk in tqdm(pd.read_csv(dataset_path, compression='gzip', usecols=usecols, dtype=dtypes, parse_dates=[time_col],chunksize=chunksize)):
         #print(chunk.head())
         count=count+1
+        total_rows += len(chunk)
+
+        # Count and drop rows with missing 'valuenum'
+        dropped_rows = chunk['valuenum'].isna().sum()
+        total_dropped_rows += dropped_rows
+
+        # decide whether to drop rows
+        # chunk=chunk.dropna(subset=['valuenum'])
         #chunk['valuenum']=chunk['valuenum'].fillna(0)
-        chunk=chunk.dropna(subset=['valuenum'])
+
         chunk_merged=chunk.merge(cohort[['stay_id', 'intime']], how='inner', left_on='stay_id', right_on='stay_id')
         chunk_merged['event_time_from_admit'] = chunk_merged[time_col] - chunk_merged['intime']
-        
+
+        # Track stay_id mismatches
+        total_stay_ids_in_module.update(chunk['stay_id'].unique())
+        total_stay_ids_in_cohort.update(cohort['stay_id'].unique())
+        total_matched_stay_ids.update(chunk_merged['stay_id'].unique())
+
         del chunk_merged[time_col] 
         del chunk_merged['intime']
         # chunk_merged=chunk_merged.dropna()
@@ -522,13 +649,20 @@ def preproc_chart(dataset_path: str, cohort_path: str, time_col: str, dtypes: di
         else:
             df_cohort=df_cohort.append(chunk_merged, ignore_index=True)
         
-        
 #         nitem.append(chunk_merged.itemid.dropna().unique())
 #         nstay=nstay.append(chunk_merged.stay_id.unique())
 #         nrows=nrows+chunk_merged.shape[0]
-                
-        
-    
+
+    # Print total dropped and total rows
+    print(f"Total rows processed: {total_rows}")
+    # print(f"Total rows dropped due to missing 'valuenum': {total_dropped_rows}")
+    print(f"Total rows with missing 'valuenum': {total_dropped_rows}")
+
+    stays_in_chart_not_in_cohort = total_stay_ids_in_module - total_matched_stay_ids
+    stays_in_cohort_not_in_charts = total_stay_ids_in_cohort - total_matched_stay_ids
+    print(f"[RESULTS] Stays in charts not in cohort: {len(stays_in_chart_not_in_cohort)}")
+    print(f"[RESULTS] Stays in cohort without chart info: {len(stays_in_cohort_not_in_charts)}")
+
     # Print unique counts and value_counts
 #     print("# Unique Events:  ", len(set(nitem)))
 #     print("# Admissions:  ", len(set(nstay)))
@@ -583,13 +717,67 @@ def preproc_icd_module( module_path:str, adm_cohort_path:str, icd_map_path=None,
     """
     
     def get_module_cohort(module_path:str, cohort_path:str):
+        """
+        Loads two datasets, one representing the module and the other representing a cohort, 
+        and merges them on the 'hadm_id' column. If a 'label' column is present in the cohort dataset, 
+        it is also included in the merge. 
+
+        Parameters
+        ----------
+        module_path : str
+            Path to the module dataset (compressed as 'gzip').
+        cohort_path : str
+            Path to the cohort dataset (compressed as 'gzip').
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing the merged result between the module and cohort datasets on 'hadm_id'.
+        
+        Prints
+        ------
+        [RESULTS] Possible Matches: int
+            The number of rows that were successfully matched between the module and cohort datasets.
+        [RESULTS] Unmatched in Module: int
+            The number of rows in the module dataset that did not find a corresponding match in the cohort.
+        [RESULTS] Unmatched in Cohort: int
+            The number of rows in the cohort dataset that did not find a corresponding match in the module.
+
+        Notes
+        -----
+        - The function performs an inner join, meaning only rows that have matching 'hadm_id' values 
+        in both datasets will be retained in the result.
+        - If the 'label' column exists in the cohort dataset, it is included in the merged result.
+        """
+           
         module = pd.read_csv(module_path, compression='gzip', header=0)
         adm_cohort = pd.read_csv(adm_cohort_path, compression='gzip', header=0)
         #print(module.head())
         #print(adm_cohort.head())
         
         #adm_cohort = adm_cohort.loc[(adm_cohort.timedelta_years <= 6) & (~adm_cohort.timedelta_years.isna())]
-        return module.merge(adm_cohort[['hadm_id', 'stay_id', 'label']], how='inner', left_on='hadm_id', right_on='hadm_id')
+        if 'label' in adm_cohort.columns:
+            adm_cols = ['hadm_id', 'stay_id', 'label']
+        else:
+            adm_cols = ['hadm_id', 'stay_id']
+
+        module_merged = module.merge(adm_cohort[adm_cols], how='inner', left_on='hadm_id', right_on='hadm_id')
+
+        # Track the number of rows before merging
+        n_adm_with_diagnoses = len(module['hadm_id'].unique())
+        n_adm_in_cohort = len(adm_cohort['hadm_id'].unique())
+        n_adm_matched = len(module_merged['hadm_id'].unique())
+        print(f"[RESULTS] Admissions with diagnoses not in cohort: {n_adm_with_diagnoses- n_adm_matched}")
+        print(f"[RESULTS] Admissions in cohort without diagnosis: {n_adm_in_cohort- n_adm_matched}")
+
+        # same for patientid: 
+        n_patients_with_diagnoses = len(module['subject_id'].unique())
+        n_patients_in_cohort = len(adm_cohort['subject_id'].unique())
+        n_patients_matched = len(module_merged['subject_id'].unique())
+        print(f"[RESULTS] Patients with diagnoses not in cohort: {n_patients_with_diagnoses- n_patients_matched}")
+        print(f"[RESULTS] Patients in cohort without diagnosis: {n_patients_in_cohort- n_patients_matched}")
+
+        return module_merged
 
     def standardize_icd(mapping, df, root=False):
         """Takes an ICD9 -> ICD10 mapping table and a modulenosis dataframe; adds column with converted ICD10 column"""
@@ -637,7 +825,6 @@ def preproc_icd_module( module_path:str, adm_cohort_path:str, icd_map_path=None,
         print("# Admissions:  ", module.stay_id.nunique())
         print("Total rows", module.shape[0])
     return module
-
 
 def pivot_cohort(df: pd.DataFrame, prefix: str, target_col:str, values='values', use_mlb=False, ohe=True, max_features=None):
     """Pivots long_format data into a multiindex array:

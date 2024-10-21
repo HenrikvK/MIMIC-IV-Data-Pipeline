@@ -13,8 +13,6 @@ def drop_wrong_uom(data, cut_off):
     grouped = data.groupby(['itemid'])['valueuom']
     for id_number, uom in grouped:
         # if id_number == 226531:
-        #     import pdb
-        #     pdb.set_trace()
         value_counts = uom.value_counts()
         num_observations = len(uom)
         if(value_counts.size >1):

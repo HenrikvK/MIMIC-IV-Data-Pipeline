@@ -181,10 +181,10 @@ class Generator():
     #MANUAL INPUT
     def generate_lab(self):
         lab=pd.read_csv("./data/features/preproc_labevents_icu.csv.gz", compression='gzip', header=0, index_col=None)
-        lab[['start_days', 'dummy','start_hours']] = lab['start_hours_from_admit'].str.split(' ', -1, expand=True)
+        lab[['start_days', 'dummy','start_hours']] = lab['chart_hours_from_admit'].str.split(' ', -1, expand=True)
         lab[['start_hours','min','sec']] = lab['start_hours'].str.split(':', -1, expand=True)
         lab['start_time']=pd.to_numeric(lab['start_days'])*24+pd.to_numeric(lab['start_hours'])
-        lab[['start_days', 'dummy','start_hours']] = lab['stop_hours_from_admit'].str.split(' ', -1, expand=True)
+        lab[['start_days', 'dummy','start_hours']] = lab['store_hours_from_admit'].str.split(' ', -1, expand=True)
         lab[['start_hours','min','sec']] = lab['start_hours'].str.split(':', -1, expand=True)
         lab['stop_time']=pd.to_numeric(lab['start_days'])*24+pd.to_numeric(lab['start_hours'])
         lab=lab.drop(columns=['start_days', 'dummy','start_hours','min','sec'])
@@ -338,10 +338,12 @@ class Generator():
         
         #self.los=include_time
     
-    def los_length(self,include_time):
+    def los_length(self,include_time, exclude_shorter_los : bool = False):
         print("include_time",include_time)
         self.los=include_time
-        self.data=self.data[(self.data['los']>=include_time)]
+
+        if exclude_shorter_los:
+            self.data=self.data[(self.data['los']>=include_time)]
         self.hids=self.data['stay_id'].unique()
         
         if(self.feat_cond):
@@ -491,88 +493,170 @@ class Generator():
             self.lab=self.lab.sort_values(by=['start_time'])
         if(self.feat_micro):
             self.micro=self.micro.sort_values(by=['start_time'])
-        
-        t=0
-        for i in tqdm(range(0,self.los,bucket)): 
-            ###MEDS
-             if(self.feat_med):
-                sub_meds=self.meds[(self.meds['start_time']>=i) & (self.meds['start_time']<i+bucket)].groupby(['stay_id','itemid','orderid']).agg({'stop_time':'max','subject_id':'max','rate':np.nanmean,'amount':np.nanmean})
-                sub_meds=sub_meds.reset_index()
-                sub_meds['start_time']=t
-                sub_meds['stop_time']=sub_meds['stop_time']/bucket
-                if final_meds.empty:
-                    final_meds=sub_meds
-                else:
-                    final_meds=final_meds.append(sub_meds)
 
-            #manual input
-            ##LAB
-             if(self.feat_lab):
-                sub_lab=self.lab[(self.lab['start_time'] >= i) & (self.lab['start_time'] < i + bucket)].groupby(['stay_id', 'itemid']).agg({'stop_time': 'max','subject_id':'max','valuenum': np.nanmean,'ref_range_lower': np.nanmean,'ref_range_upper': np.nanmean,'valueuom': 'max'})
-                sub_lab=sub_lab.reset_index()
-                sub_lab['start_time']=t
-                sub_lab['stop_time']=sub_lab['stop_time']/bucket
-                if final_lab.empty:
-                    final_lab=sub_lab
-                else:
-                    final_lab=final_lab.append(sub_lab)
+        # Initialize empty lists to accumulate results
+        meds_list = []
+        lab_list = []
+        micro_list = []
+        proc_list = []
+        out_list = []
+        chart_list = []
 
-            ##MICRO
-             if(self.feat_micro):
-                sub_micro=self.micro[(self.micro['start_time']>=i) & (self.micro['start_time']<i+bucket)].groupby(['stay_id','test_itemid']).agg({'stop_time':'max','subject_id':'max','spec_itemid':"max"})
-                sub_micro=sub_micro.reset_index()
-                sub_micro['start_time']=t
-                sub_micro['stop_time']=sub_micro['stop_time']/bucket
-                if final_micro.empty:
-                    final_micro=sub_micro
-                else:
-                    final_micro=final_micro.append(sub_micro)
+        # Loop through the range with tqdm for progress tracking
+        for i in tqdm(range(0, self.los, bucket)):
+            ### MEDS
+            if self.feat_med:
+                sub_meds = self.meds[(self.meds['start_time'] >= i) & (self.meds['start_time'] < i + bucket)]\
+                    .groupby(['stay_id', 'itemid', 'orderid']).agg({
+                        'stop_time': 'max',
+                        'subject_id': 'max',
+                        'rate': np.nanmean,
+                        'amount': np.nanmean
+                    }).reset_index()
+                sub_meds['start_time'] = i
+                sub_meds['stop_time'] /= bucket
+                meds_list.append(sub_meds)
+
+            ### LAB
+            if self.feat_lab:
+                sub_lab = self.lab[(self.lab['start_time'] >= i) & (self.lab['start_time'] < i + bucket)]\
+                    .groupby(['stay_id', 'itemid']).agg({
+                        'stop_time': 'max',
+                        'subject_id': 'max',
+                        'valuenum': np.nanmean,
+                        'ref_range_lower': np.nanmean,
+                        'ref_range_upper': np.nanmean,
+                        'valueuom': 'max'
+                    }).reset_index()
+                sub_lab['start_time'] = i
+                sub_lab['stop_time'] /= bucket
+                lab_list.append(sub_lab)
+
+            ### MICRO
+            if self.feat_micro:
+                sub_micro = self.micro[(self.micro['start_time'] >= i) & (self.micro['start_time'] < i + bucket)]\
+                    .groupby(['stay_id', 'test_itemid']).agg({
+                        'stop_time': 'max',
+                        'subject_id': 'max',
+                        'spec_itemid': 'max'
+                    }).reset_index()
+                sub_micro['start_time'] = i
+                sub_micro['stop_time'] /= bucket
+                micro_list.append(sub_micro)
+
+            ### PROC
+            if self.feat_proc:
+                sub_proc = self.proc[(self.proc['start_time'] >= i) & (self.proc['start_time'] < i + bucket)]\
+                    .groupby(['stay_id', 'itemid']).agg({'subject_id': 'max'}).reset_index()
+                sub_proc['start_time'] = i
+                proc_list.append(sub_proc)
+
+            ### OUT
+            if self.feat_out:
+                sub_out = self.out[(self.out['start_time'] >= i) & (self.out['start_time'] < i + bucket)]\
+                    .groupby(['stay_id', 'itemid']).agg({'value': np.nanmean}).reset_index()
+                sub_out['start_time'] = i
+                out_list.append(sub_out)
+
+            ### CHART
+            if self.feat_chart:
+                sub_chart = self.chart[(self.chart['start_time'] >= i) & (self.chart['start_time'] < i + bucket)]\
+                    .groupby(['stay_id', 'itemid']).agg({'valuenum': np.nanmean}).reset_index()
+                sub_chart['start_time'] = i
+                chart_list.append(sub_chart)
+
+            # t=t+1
+            # print("bucket",bucket)
+            # los=int(self.los/bucket)
+
+        # At the end, concatenate all accumulated data
+        final_meds = pd.concat(meds_list, ignore_index=True) if meds_list else pd.DataFrame()
+        final_lab = pd.concat(lab_list, ignore_index=True) if lab_list else pd.DataFrame()
+        final_micro = pd.concat(micro_list, ignore_index=True) if micro_list else pd.DataFrame()
+        final_proc = pd.concat(proc_list, ignore_index=True) if proc_list else pd.DataFrame()
+        final_out = pd.concat(out_list, ignore_index=True) if out_list else pd.DataFrame()
+        final_chart = pd.concat(chart_list, ignore_index=True) if chart_list else pd.DataFrame()
+
+        # t=0
+        # for i in tqdm(range(0,self.los,bucket)): 
+        #     ###MEDS
+        #      if(self.feat_med):
+        #         sub_meds=self.meds[(self.meds['start_time']>=i) & (self.meds['start_time']<i+bucket)].groupby(['stay_id','itemid','orderid']).agg({'stop_time':'max','subject_id':'max','rate':np.nanmean,'amount':np.nanmean})
+        #         sub_meds=sub_meds.reset_index()
+        #         sub_meds['start_time']=t
+        #         sub_meds['stop_time']=sub_meds['stop_time']/bucket
+        #         if final_meds.empty:
+        #             final_meds=sub_meds
+        #         else:
+        #             final_meds=final_meds.append(sub_meds)
+                    
+        #     #manual input
+        #     ##LAB
+        #      if(self.feat_lab):
+        #         sub_lab=self.lab[(self.lab['start_time'] >= i) & (self.lab['start_time'] < i + bucket)].groupby(['stay_id', 'itemid']).agg({'stop_time': 'max','subject_id':'max','valuenum': np.nanmean,'ref_range_lower': np.nanmean,'ref_range_upper': np.nanmean,'valueuom': 'max'})
+        #         sub_lab=sub_lab.reset_index()
+        #         sub_lab['start_time']=t
+        #         sub_lab['stop_time']=sub_lab['stop_time']/bucket
+        #         if final_lab.empty:
+        #             final_lab=sub_lab
+        #         else:
+        #             final_lab=final_lab.append(sub_lab)
+
+        #     ##MICRO
+        #      if(self.feat_micro):
+        #         sub_micro=self.micro[(self.micro['start_time']>=i) & (self.micro['start_time']<i+bucket)].groupby(['stay_id','test_itemid']).agg({'stop_time':'max','subject_id':'max','spec_itemid':"max"})
+        #         sub_micro=sub_micro.reset_index()
+        #         sub_micro['start_time']=t
+        #         sub_micro['stop_time']=sub_micro['stop_time']/bucket
+        #         if final_micro.empty:
+        #             final_micro=sub_micro
+        #         else:
+        #             final_micro=final_micro.append(sub_micro)
             
-            ###PROC
-             if(self.feat_proc):
-                sub_proc=self.proc[(self.proc['start_time']>=i) & (self.proc['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'subject_id':'max'})
-                sub_proc=sub_proc.reset_index()
-                sub_proc['start_time']=t
-                if final_proc.empty:
-                    final_proc=sub_proc
-                else:    
-                    final_proc=final_proc.append(sub_proc)
+        #     ###PROC
+        #      if(self.feat_proc):
+        #         sub_proc=self.proc[(self.proc['start_time']>=i) & (self.proc['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'subject_id':'max'})
+        #         sub_proc=sub_proc.reset_index()
+        #         sub_proc['start_time']=t
+        #         if final_proc.empty:
+        #             final_proc=sub_proc
+        #         else:    
+        #             final_proc=final_proc.append(sub_proc)
                     
-              ###OUT
-             if(self.feat_out):
-                sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'value':np.nanmean})
-                sub_out=sub_out.reset_index()
-                sub_out['start_time']=t
-                if final_out.empty:
-                    final_out=sub_out
-                else:    
-                    final_out=final_out.append(sub_out)
+        #       ###OUT
+        #      if(self.feat_out):
+        #         sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'value':np.nanmean})
+        #         sub_out=sub_out.reset_index()
+        #         sub_out['start_time']=t
+        #         if final_out.empty:
+        #             final_out=sub_out
+        #         else:    
+        #             final_out=final_out.append(sub_out)
 
-            #   ###OUT (OLD)
-            #  if(self.feat_out):
-            #     sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'subject_id':'max'})
-            #     sub_out=sub_out.reset_index()
-            #     sub_out['start_time']=t
-            #     if final_out.empty:
-            #         final_out=sub_out
-            #     else:    
-            #         final_out=final_out.append(sub_out)
+        #     #   ###OUT (OLD)
+        #     #  if(self.feat_out):
+        #     #     sub_out=self.out[(self.out['start_time']>=i) & (self.out['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'subject_id':'max'})
+        #     #     sub_out=sub_out.reset_index()
+        #     #     sub_out['start_time']=t
+        #     #     if final_out.empty:
+        #     #         final_out=sub_out
+        #     #     else:    
+        #     #         final_out=final_out.append(sub_out)
                     
                     
-              ###CHART 
-             if(self.feat_chart):
-                sub_chart=self.chart[(self.chart['start_time']>=i) & (self.chart['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'valuenum':np.nanmean})
-                sub_chart=sub_chart.reset_index()
-                sub_chart['start_time']=t
-                if final_chart.empty:
-                    final_chart=sub_chart
-                else:    
-                    final_chart=final_chart.append(sub_chart)
+        #       ###CHART 
+        #      if(self.feat_chart):
+        #         sub_chart=self.chart[(self.chart['start_time']>=i) & (self.chart['start_time']<i+bucket)].groupby(['stay_id','itemid']).agg({'valuenum':np.nanmean})
+        #         sub_chart=sub_chart.reset_index()
+        #         sub_chart['start_time']=t
+        #         if final_chart.empty:
+        #             final_chart=sub_chart
+        #         else:    
+        #             final_chart=final_chart.append(sub_chart)
 
             
-             t=t+1
-        print("bucket",bucket)
-        los=int(self.los/bucket)
+        # print("bucket",bucket)
+        # los=int(self.los/bucket)
         
         
         ###MEDS
@@ -617,14 +701,22 @@ class Generator():
 #         if(self.feat_chart):
 #             self.create_chartDict(final_chart,los)
 #         else:
+        import pdb
+        pdb.set_trace() 
         self.create_Dict(final_meds,final_proc,final_out,final_chart, final_lab, final_micro,los)
         
     
     def create_chartDict(self,chart,los):
         dataDic={}
-        for hid in self.hids:
-            grp=self.data[self.data['stay_id']==hid]
-            dataDic[hid]={'Chart':{},'label':int(grp['label'])}
+        if 'label' in self.data.columns:
+            include_label = True
+        else:
+            include_label = False 
+
+        if include_label:   
+            for hid in self.hids:
+                grp=self.data[self.data['stay_id']==hid]
+                dataDic[hid]={'Chart':{},'label':int(grp['label'])}
         for hid in tqdm(self.hids):
             ###CHART
             if(self.feat_chart):
@@ -683,20 +775,29 @@ class Generator():
     def create_Dict(self,meds,proc,out,chart, lab, micro,los):
         dataDic={}
         print(los)
-        labels_csv=pd.DataFrame(columns=['stay_id','label'])
-        labels_csv['stay_id']=pd.Series(self.hids)
-        labels_csv['label']=0
+
+        if 'label' in self.data.columns:
+            include_label = True
+            labels_csv=pd.DataFrame(columns=['stay_id','label'])
+            labels_csv['stay_id']=pd.Series(self.hids)
+            labels_csv['label']=0
+        else:
+            include_label = False
 #         print("# Unique gender",self.data.gender.nunique())
 #         print("# Unique ethnicity",self.data.ethnicity.nunique())
 #         print("# Unique insurance",self.data.insurance.nunique())
 
+        
         for hid in self.hids:
             grp=self.data[self.data['stay_id']==hid]
-            dataDic[hid]={'Cond':{},'Proc':{},'Med':{},'Out':{},'Chart':{},'Lab': {},   # Add Lab data
-            'Micro': {},'ethnicity':grp['ethnicity'].iloc[0],'age':int(grp['Age']),'gender':grp['gender'].iloc[0],'label':int(grp['label'])}
-            labels_csv.loc[labels_csv['stay_id']==hid,'label']=int(grp['label'])
+            if include_label:
+                dataDic[hid]={'Cond':{},'Proc':{},'Med':{},'Out':{},'Chart':{},'Lab': {},   # Add Lab data
+                'Micro': {},'ethnicity':grp['ethnicity'].iloc[0],'age':int(grp['Age']),'gender':grp['gender'].iloc[0],'label':int(grp['label'])}
+                labels_csv.loc[labels_csv['stay_id']==hid,'label']=int(grp['label'])
+            else:
+                dataDic[hid]={'Cond':{},'Proc':{},'Med':{},'Out':{},'Chart':{},'Lab': {},   # Add Lab data
+                'Micro': {},'ethnicity':grp['ethnicity'].iloc[0],'age':int(grp['Age']),'gender':grp['gender'].iloc[0]}
             
-
             #print(static_csv.head())
         for hid in tqdm(self.hids):
             grp=self.data[self.data['stay_id']==hid]
@@ -828,8 +929,6 @@ class Generator():
                     spec_itemid.columns = pd.MultiIndex.from_product([["MICRO"], spec_itemid.columns])
                 else:
                     # Process spec_itemid (discrete specimen IDs)
-                    #import pdb
-                    #pdb.set_trace()
                     spec_itemid = df2.pivot_table(index='start_time', columns='test_itemid', values='spec_itemid', aggfunc='first')
                     df2 = df2.pivot_table(index='start_time', columns='spec_itemid', values='stop_time')
 
@@ -1020,7 +1119,9 @@ class Generator():
                     grp=grp[feat]
                     grp.columns=pd.MultiIndex.from_product([["COND"], grp.columns])
             grp.to_csv('./data/csv/'+str(hid)+'/static.csv',index=False)   
-            labels_csv.to_csv('./data/csv/labels.csv',index=False)    
+            
+            if include_label:
+                labels_csv.to_csv('./data/csv/labels.csv',index=False)    
             
                 
         ######SAVE DICTIONARIES##############
